@@ -3,7 +3,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const buildStamp = `${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`
+
 export default defineConfig({
+  // Stamped into the bundle so Settings can show which build a device runs.
+  define: { __NMBR_BUILD__: JSON.stringify(buildStamp) },
   plugins: [
     react(),
     tailwindcss(),

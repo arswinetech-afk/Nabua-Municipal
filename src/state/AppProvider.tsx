@@ -158,7 +158,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // session timeout
   useEffect(() => {
     if (!user) return
-    const activity = () => api.touchSession()
+    /**
+     * Prolonging the session writes to storage, so it is throttled: doing that
+     * on every keystroke put a synchronous write on the critical path of every
+     * letter typed on a low-end phone. The timeout is measured in minutes, so a
+     * coarse interval is indistinguishable to the user.
+     */
+    const TOUCH_INTERVAL_MS = 15_000
+    let lastTouch = 0
+    const activity = () => {
+      const now = Date.now()
+      if (now - lastTouch < TOUCH_INTERVAL_MS) return
+      lastTouch = now
+      api.touchSession()
+    }
     const events: Array<keyof WindowEventMap> = ['click', 'keydown', 'mousemove', 'touchstart']
     events.forEach((e) => window.addEventListener(e, activity, { passive: true }))
     const timer = setInterval(() => {

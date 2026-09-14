@@ -113,6 +113,26 @@ Setting `VITE_SUPABASE_ENABLED=false` produces a pure standalone deployment that
 
 ---
 
+---
+
+## 3c. Shipping an update to devices that already installed the app
+
+The app is a PWA, so phones and office PCs keep serving the build they cached
+until that page reloads. After uploading a new bundle to Cloudflare Pages:
+
+1. **Cloudflare** finishes the deployment (a few seconds).
+2. **On each device, close the app completely and reopen it once.** The service
+   worker takes the new build immediately, and the reload that follows is the one
+   that swaps the running JavaScript.
+3. **Confirm the build.** Settings → *Municipal server* → **App build** shows the
+   build stamp of the running copy (for example `2026-09-15 08:20 UTC`). If it is
+   still the old stamp, the device is holding the previous build.
+
+From this release onwards the app asks for its own update: when a newer build
+takes over, a bar appears across the top — *“A newer version of NMBR is ready”* —
+with a **Reload now** button. Nothing reloads by itself, because an encoder may
+be halfway through a form.
+
 ## 4. Installing it on an office device
 
 Open the site in Chrome or Edge and use **Install** in the address bar (or *Add to Home screen* on Android/iOS). The app then opens in its own window and keeps working with no connection: the member list, duplicate checking and encoding all run locally, and everything queued is sent when the link returns.

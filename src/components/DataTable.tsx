@@ -56,9 +56,22 @@ export function DataTable<T>({
   const [showColumns, setShowColumns] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
 
+  /**
+   * Pages build their `columns` array on every render, so the array identity is
+   * never stable: depending on it directly made this effect run (and write state)
+   * on every keystroke anywhere on the page. The signature below only changes
+   * when the set of columns really changes, and updating `hidden` returns the
+   * previous array when nothing was dropped, which lets React skip the render.
+   */
+  const columnSignature = columns.map((c) => c.key).join('\u0000')
+
   useEffect(() => {
-    setHidden((prev) => prev.filter((k) => columns.some((c) => c.key === k)))
-  }, [columns])
+    const known = new Set(columnSignature ? columnSignature.split('\u0000') : [])
+    setHidden((prev) => {
+      const next = prev.filter((k) => known.has(k))
+      return next.length === prev.length ? prev : next
+    })
+  }, [columnSignature])
 
   const visible = columns.filter((c) => !hidden.includes(c.key))
   const sorted = useMemo(() => {

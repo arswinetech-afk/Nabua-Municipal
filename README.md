@@ -79,6 +79,14 @@ The file is assembled from `supabase/migrations/` during the build, so it cannot
 drift from the schema the application is tested against. Full details, including
 creating staff accounts, are in `docs/DEPLOY_CLOUDFLARE.md`.
 
+## Updating a device that already installed the app
+
+After a new bundle is uploaded to Cloudflare Pages, close the app on the phone
+and open it again once — the reload is what swaps the running build. The app then
+asks for its own next update: a bar appears with **Reload now** when a newer build
+takes over, and **Settings → Municipal server → App build** shows which build a
+device is actually running.
+
 ## Offline behaviour
 
 The application is an installable PWA. Reads are served from the municipal server when reachable and

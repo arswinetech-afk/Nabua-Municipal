@@ -3,6 +3,7 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DEFAULT_THRESHOLDS, DEFAULT_WEIGHTS } from '../lib/duplicateEngine'
 import { SUPABASE_ENABLED, SUPABASE_URL } from '../lib/supabase'
+import { APP_BUILD } from '../lib/pwa'
 import { cn } from '../lib/utils'
 import {
   Badge, Button, Card, ConfirmDialog, Field, IconAlert, IconCloud, IconDownload, IconRefresh, IconSave,
@@ -240,6 +241,7 @@ export default function Settings() {
                 }
               />
               <Row label="Endpoint" value={<span className="mono text-[10px]">{SUPABASE_URL.replace('https://', '')}</span>} />
+              <Row label="App build" value={<span className="mono text-[10px]">{APP_BUILD}</span>} />
               <Row label="Queued changes" value={String(pendingCount)} />
               <Row label="Last synchronised" value={lastSync ? new Date(lastSync).toLocaleString() : 'never'} />
             </div>

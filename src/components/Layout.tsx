@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { cn, formatDateTime, initials, relativeTime } from '../lib/utils'
+import { applyAppUpdate, useAppUpdate } from '../lib/pwa'
 import { useApp } from '../state/AppProvider'
 import { ROLE_LABEL, type UserRole } from '../lib/types'
 import {
@@ -169,6 +170,8 @@ export default function Layout() {
           </div>
         </header>
 
+        <AppUpdateBar />
+
         {sessionNotice && (
           <div className="no-print flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:px-5">
             <IconAlert /> {sessionNotice}
@@ -238,4 +241,24 @@ export function PageHeader({
 
 export function relativeSyncLabel(iso: string | null): string {
   return iso ? relativeTime(iso) : 'never'
+}
+
+/**
+ * Shown when a newly deployed build has taken over from the one this page is
+ * running. Nothing reloads on its own: an encoder may be part-way through a form
+ * and losing it to an automatic refresh would be worse than the stale screen.
+ */
+function AppUpdateBar() {
+  const ready = useAppUpdate()
+  const [dismissed, setDismissed] = useState(false)
+  if (!ready || dismissed) return null
+  return (
+    <div className="no-print flex flex-wrap items-center gap-2 border-b border-gov-200 bg-gov-50 px-3 py-2 text-xs text-gov-900 sm:px-5">
+      <IconRefresh />
+      <span className="font-semibold">A newer version of NMBR is ready.</span>
+      <span className="text-gov-800">Reload to use it — anything you have saved is already on this device.</span>
+      <button className="btn btn-primary btn-sm ml-auto" onClick={applyAppUpdate}>Reload now</button>
+      <button className="btn btn-ghost btn-sm" onClick={() => setDismissed(true)}>Later</button>
+    </div>
+  )
 }
