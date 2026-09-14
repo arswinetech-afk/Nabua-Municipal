@@ -55,12 +55,12 @@ Do this when you want one shared registry across all barangay offices instead of
 
    ```
    supabase/migrations/0001_schema.sql
-   supabase/migrations/0002_scoring.sql
-   supabase/migrations/0003_guards_audit.sql
+   supabase/migrations/0002_functions.sql
+   supabase/migrations/0003_guard_triggers.sql
    supabase/migrations/0004_rpc_registry.sql
    supabase/migrations/0005_rpc_duplicates.sql
    supabase/migrations/0006_rpc_import_admin.sql
-   supabase/migrations/0007_rls.sql
+   supabase/migrations/0007_security_rls.sql
    ```
 
    Each file is idempotent, so a re-run is safe. The migrations create the tables, the fuzzy-matching functions, the duplicate guard, the RPCs and the row-level security policies.
