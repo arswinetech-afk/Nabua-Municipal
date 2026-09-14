@@ -1,0 +1,242 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useApp } from '../state/AppProvider'
+import { PageHeader } from '../components/Layout'
+import { MemberTable } from '../components/MemberTable'
+import type { Barangay, Person, PersonStatus } from '../lib/types'
+import { PERSON_STATUSES } from '../lib/types'
+import { relativeTime } from '../lib/utils'
+import {
+  Badge, Button, Card, IconArrowLeft, IconCopy, IconDownload, IconEye, IconPlus, IconRefresh,
+  IconSearch, IconUpload, KpiCard, useToast,
+} from '../components/ui'
+
+export default function BarangayRegistry() {
+  const { id = '' } = useParams()
+  const { api, user, settings } = useApp()
+  const navigate = useNavigate()
+  const toast = useToast()
+
+  const [barangay, setBarangay] = useState<Barangay | null>(null)
+  const [rows, setRows] = useState<Person[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [status, setStatus] = useState<string>('ALL')
+  const [sex, setSex] = useState<string>('ALL')
+  const [sort, setSort] = useState<'name' | 'updated' | 'dob' | 'barangay'>('name')
+  const [dir, setDir] = useState<'asc' | 'desc'>('asc')
+  const [limit, setLimit] = useState(25)
+  const [offset, setOffset] = useState(0)
+  const [exporting, setExporting] = useState(false)
+  const [counts, setCounts] = useState({ total: 0, active: 0, review: 0, duplicates: 0 })
+
+  const canEncode = user && ['ENCODER', 'ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
+  const canImport = user && ['ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
+
+  useEffect(() => {
+    const handle = setTimeout(() => { setDebounced(query.trim()); setOffset(0) }, 300)
+    return () => clearTimeout(handle)
+  }, [query])
+
+  const load = useCallback(async () => {
+    if (!id) return
+    setLoading(true)
+    try {
+      const list = await api.listBarangays(true)
+      setBarangay(list.find((b) => b.id === id) ?? null)
+      const stat = list.find((b) => b.id === id)
+      setCounts({
+        total: stat?.total_members ?? 0,
+        active: stat?.active_members ?? 0,
+        review: stat?.for_review ?? 0,
+        duplicates: stat?.possible_duplicates ?? 0,
+      })
+      const res = await api.searchPersons({
+        query: debounced || undefined,
+        barangay_id: id,
+        status: status === 'ALL' ? null : status,
+        sex: sex === 'ALL' ? null : sex,
+        sort, dir, limit, offset,
+      })
+      setRows(res.rows)
+      setTotal(res.total)
+    } finally {
+      setLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, id, debounced, status, sex, sort, dir, limit, offset])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const exportCsv = async () => {
+    setExporting(true)
+    const res = await api.searchPersons({ barangay_id: id, status: status === 'ALL' ? null : status, limit: 5000 })
+    const header = ['Reference No.', 'Last name', 'First name', 'Middle name', 'Suffix', 'Birthdate', 'Sex',
+      'Civil status', 'Purok', 'Address', 'Contact', 'Barangay', 'Status', 'Updated']
+    const lines = [header.join(',')]
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    res.rows.forEach((p) => {
+      lines.push([p.reference_no, p.last_name, p.first_name, p.middle_name, p.suffix, p.date_of_birth, p.sex,
+        p.civil_status, p.purok, p.address, p.contact_number, p.barangay_name, p.status, p.updated_at].map(esc).join(','))
+    })
+    const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `nmbr-${barangay?.name.replace(/\s+/g, '-').toLowerCase() ?? 'barangay'}-members.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    await api.logEvent('EXPORT_MEMBER_LIST', 'BARANGAY', id, barangay?.name ?? null, { rows: res.rows.length })
+    toast.push({ tone: 'info', title: `${res.rows.length} record(s) exported`, message: 'The export was written to the audit log.' })
+    setExporting(false)
+  }
+
+  return (
+    <>
+      <PageHeader
+        breadcrumbs={[{ label: 'Barangays', to: '/barangays' }, { label: barangay?.name ?? 'Barangay' }]}
+        title={barangay ? `${barangay.name} — Member Registry` : 'Barangay Member Registry'}
+        subtitle={
+          barangay
+            ? `${barangay.municipality}, ${barangay.province}${barangay.district ? ` · ${barangay.district}` : ''} · last update ${barangay.last_updated ? relativeTime(barangay.last_updated) : 'not recorded'}`
+            : undefined
+        }
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/barangays')}>
+              <IconArrowLeft /> Directory
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => void load()} loading={loading}>
+              <IconRefresh /> Refresh
+            </Button>
+            {canEncode && (
+              <Button variant="primary" size="sm" onClick={() => navigate(`/members/new?barangay=${id}`)}>
+                <IconPlus /> Add member
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard label="Total members" value={counts.total.toLocaleString()} sub="In this barangay" />
+        <KpiCard label="Active records" value={counts.active.toLocaleString()} sub="Current residents" tone="success" />
+        <KpiCard label="For review" value={counts.review.toLocaleString()} sub="Need verification"
+          tone={counts.review ? 'warning' : 'neutral'} />
+        <KpiCard label="Possible duplicates" value={counts.duplicates} sub="With other barangays too"
+          tone={counts.duplicates ? 'danger' : 'success'} />
+      </div>
+
+      <Card className="card-pad mt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 sm:max-w-md">
+            <IconSearch className="pointer-events-none absolute top-2.5 left-2.5 h-4 w-4 text-slate-400" />
+            <input
+              className="input pl-8"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search this barangay by name, birthdate, contact, purok or reference no."
+              aria-label="Search members in this barangay"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="input max-w-[10rem]" value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0) }}
+              aria-label="Filter by status">
+              <option value="ALL">All statuses</option>
+              {PERSON_STATUSES.map((s: PersonStatus) => (
+                <option key={s} value={s}>{s.replace('_', ' ')}</option>
+              ))}
+            </select>
+            <select className="input max-w-[9rem]" value={sex} onChange={(e) => { setSex(e.target.value); setOffset(0) }}
+              aria-label="Filter by sex">
+              <option value="ALL">All sexes</option>
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+            </select>
+            <select className="input max-w-[10rem]" value={`${sort}:${dir}`}
+              onChange={(e) => { const [s, d] = e.target.value.split(':'); setSort(s as typeof sort); setDir(d as 'asc' | 'desc') }}
+              aria-label="Sort">
+              <option value="name:asc">Name A → Z</option>
+              <option value="name:desc">Name Z → A</option>
+              <option value="updated:desc">Recently updated</option>
+              <option value="dob:asc">Birthdate (oldest first)</option>
+              <option value="dob:desc">Birthdate (youngest first)</option>
+            </select>
+            <select className="input max-w-[7rem]" value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0) }}
+              aria-label="Rows per page">
+              {[25, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
+            </select>
+          </div>
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => navigate(`/duplicates?barangay=${id}`)}>
+              <IconCopy /> Duplicate review
+            </Button>
+            {canImport && (
+              <Button variant="secondary" size="sm" onClick={() => navigate(`/imports?barangay=${id}`)}>
+                <IconUpload /> Import
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" loading={exporting} onClick={() => void exportCsv()}>
+              <IconDownload /> Export CSV
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => window.print()}>
+              Print
+            </Button>
+          </div>
+        </div>
+        {(debounced || status !== 'ALL' || sex !== 'ALL') && (
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-ink-soft">
+            <span>Filters active:</span>
+            {debounced && <Badge tone="info">“{debounced}”</Badge>}
+            {status !== 'ALL' && <Badge tone="info">{status.replace('_', ' ')}</Badge>}
+            {sex !== 'ALL' && <Badge tone="info">{sex}</Badge>}
+            <Button size="sm" variant="ghost" onClick={() => { setQuery(''); setStatus('ALL'); setSex('ALL'); setOffset(0) }}>
+              Clear filters
+            </Button>
+          </p>
+        )}
+      </Card>
+
+      <div className="mt-4">
+        <MemberTable
+          rows={rows}
+          total={total}
+          loading={loading}
+          limit={limit}
+          offset={offset}
+          onPage={setOffset}
+          onRowClick={(p) => navigate(`/members/${p.id}`)}
+          exportName="barangay-members"
+          maskContactNumbers={settings.mask_contact_in_lists}
+        />
+      </div>
+
+      <Card className="card-pad mt-4">
+        <h2 className="section-title">Working in {barangay?.name ?? 'this barangay'}</h2>
+        <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-ink-soft sm:grid-cols-3">
+          <p>
+            <span className="font-semibold text-ink">Add member</span> runs the mandatory search-before-add check against the
+            whole municipality, not just this barangay.
+          </p>
+          <p>
+            <span className="font-semibold text-ink">Duplicate review</span> shows pairs involving this barangay so
+            overlapping encodings are resolved centrally.
+          </p>
+          <p>
+            <span className="font-semibold text-ink">Transfers</span> are recorded from the member profile and keep the same
+            master record. {settings.require_reason_on_edit ? 'Edits require a reason.' : ''}
+          </p>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link className="btn btn-secondary btn-sm" to={`/members?barangay=${id}`}>
+            <IconEye /> Open in Members table
+          </Link>
+        </div>
+      </Card>
+    </>
+  )
+}

@@ -1,0 +1,2 @@
+# Cloudflare Pages SPA fallback: every unknown path serves the app shell.
+/*  /index.html  200

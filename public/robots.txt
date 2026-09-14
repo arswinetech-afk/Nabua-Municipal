@@ -1,0 +1,4 @@
+# NMBR - Nabua Municipal Barangay Registry
+# This is an internal government system. It must never be indexed.
+User-agent: *
+Disallow: /
