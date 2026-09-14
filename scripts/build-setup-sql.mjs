@@ -42,7 +42,8 @@ const header = `-- =============================================================
 --  matching functions, the audit triggers, the row level security policies and
 --  the stored procedures the application calls.
 --
---  Generated ${new Date().toISOString()} from:
+--  Built from these migration files, in this order (the file is reproducible:
+--  the same sources always produce byte-identical output):
 ${migrationFiles.map((f) => `--      supabase/migrations/${f}`).join('\n')}
 -- =====================================================================
 

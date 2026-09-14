@@ -17,7 +17,8 @@
 --  matching functions, the audit triggers, the row level security policies and
 --  the stored procedures the application calls.
 --
---  Generated 2026-09-14T15:55:20.805Z from:
+--  Built from these migration files, in this order (the file is reproducible:
+--  the same sources always produce byte-identical output):
 --      supabase/migrations/0001_schema.sql
 --      supabase/migrations/0002_functions.sql
 --      supabase/migrations/0003_guard_triggers.sql
