@@ -12,8 +12,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:db": "node scripts/pg-selftest.mjs && node scripts/pg-seed-test.mjs",
-    "seed:sql": "node scripts/gen-seed.mjs"
+    "test:db": "node scripts/pg-selftest.mjs && node scripts/pg-seed-test.mjs && node scripts/pg-setup-test.mjs",
+    "seed:sql": "node scripts/gen-seed.mjs",
+    "setup:sql": "node scripts/build-setup-sql.mjs",
+    "prebuild:app": "node scripts/build-setup-sql.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

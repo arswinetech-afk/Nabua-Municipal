@@ -21,7 +21,8 @@ const WEIGHT_LABELS: Record<string, string> = {
 }
 
 export default function Settings() {
-  const { api, user, settings, refreshSettings, connection, sync, lastSync, pendingCount } = useApp()
+  const { api, user, settings, refreshSettings, connection, sync, lastSync, pendingCount, serverStatus, recheckServer } = useApp()
+  const [checking, setChecking] = useState(false)
   const toast = useToast()
   const [weights, setWeights] = useState<Record<string, number>>({ ...DEFAULT_WEIGHTS })
   const [thresholds, setThresholds] = useState<Record<string, number>>({ ...DEFAULT_THRESHOLDS })
@@ -226,18 +227,60 @@ export default function Settings() {
           <Card className="card-pad">
             <h2 className="section-title"><IconCloud /> Municipal server</h2>
             <div className="mt-3 space-y-2 text-xs">
-              <Row label="Mode" value={SUPABASE_ENABLED ? 'Supabase connected' : 'Standalone (local registry only)'} />
+              <Row label="Mode" value={SUPABASE_ENABLED ? 'Supabase configured' : 'Standalone (local registry only)'} />
               <Row label="Connection" value={connection === 'online' ? 'Online' : connection === 'offline' ? 'Offline' : connection === 'unknown' ? 'Checking…' : 'Not configured'} />
+              <Row
+                label="Database"
+                value={
+                  <Badge tone={serverStatus === 'ready' ? 'success' : serverStatus === 'missing' ? 'warning' : 'muted'}>
+                    {serverStatus === 'ready' ? 'Set up and ready'
+                      : serverStatus === 'missing' ? 'Not set up yet'
+                        : serverStatus === 'unconfigured' ? 'Not configured' : 'Not checked'}
+                  </Badge>
+                }
+              />
               <Row label="Endpoint" value={<span className="mono text-[10px]">{SUPABASE_URL.replace('https://', '')}</span>} />
               <Row label="Queued changes" value={String(pendingCount)} />
               <Row label="Last synchronised" value={lastSync ? new Date(lastSync).toLocaleString() : 'never'} />
             </div>
-            <Button variant="secondary" className="mt-3 w-full" onClick={() => void sync()}>
-              <IconRefresh /> Synchronise now
-            </Button>
+
+            {serverStatus === 'missing' && (
+              <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-[11px] text-amber-900">
+                <p className="font-semibold">The database has not been created on this Supabase project.</p>
+                <p className="mt-1">
+                  Run the setup SQL once and the whole registry switches to the central database; queued work uploads
+                  by itself. Steps and the full guide are in the download below.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-col gap-2">
+              <Button
+                variant="secondary"
+                loading={checking}
+                onClick={async () => { setChecking(true); await recheckServer(); setChecking(false) }}
+              >
+                <IconRefresh /> Check the server again
+              </Button>
+              {SUPABASE_ENABLED && (
+                <>
+                  <a className="btn btn-secondary btn-sm" href="/setup/NMBR-supabase-setup.sql" download>
+                    <IconDownload /> Database setup SQL
+                  </a>
+                  <a className="btn btn-ghost btn-sm" href="/setup/NMBR-demonstration-data.sql" download>
+                    <IconDownload /> Demonstration data (optional)
+                  </a>
+                </>
+              )}
+              <Button variant="primary" onClick={() => void sync()}>
+                <IconCloud /> Synchronise now
+              </Button>
+            </div>
             <p className="mt-2 text-[11px] text-ink-soft">
-              Reads and writes go to the server whenever it is reachable. Offline entries are queued and replayed
-              automatically; a queued entry that clashes with the server is parked as a conflict for you to resolve.
+              Paste the setup SQL into the Supabase SQL Editor once, then press “Check the server again”. Until then the
+              registry runs on this device and nothing is lost; afterwards reads and writes go to the server, offline
+              entries replay automatically, and a queued entry that clashes with the server is parked as a conflict for
+              you to resolve.
             </p>
           </Card>
 

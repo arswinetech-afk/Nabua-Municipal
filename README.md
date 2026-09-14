@@ -66,6 +66,19 @@ resident information.
    different people, keep both, investigate later). Merging archives the losing record with a pointer
    to the survivor; nothing is ever hard-deleted.
 
+## Setting up the central database
+
+The app works on a single device straight away, and tells you when the central
+database has not been created yet. To switch it on:
+
+1. Sync Centre (or Settings → Municipal server) → **Download setup SQL**.
+2. Supabase → SQL Editor → paste the file → **Run**.
+3. Back in the app → **Check the server again**. Queued work uploads automatically.
+
+The file is assembled from `supabase/migrations/` during the build, so it cannot
+drift from the schema the application is tested against. Full details, including
+creating staff accounts, are in `docs/DEPLOY_CLOUDFLARE.md`.
+
 ## Offline behaviour
 
 The application is an installable PWA. Reads are served from the municipal server when reachable and

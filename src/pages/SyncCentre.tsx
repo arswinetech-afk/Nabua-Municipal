@@ -5,21 +5,29 @@ import { PageHeader } from '../components/Layout'
 import type { OutboxItem } from '../lib/types'
 import { cn, formatDateTime, relativeTime } from '../lib/utils'
 import {
-  Badge, Button, Card, ConfirmDialog, EmptyState, IconAlert, IconCheck, IconCloud, IconRefresh,
-  IconSpinner, IconTrash, IconWifiOff, KpiCard, StatusBadge, useToast,
+  Badge, Button, Card, ConfirmDialog, EmptyState, IconAlert, IconCheck, IconCloud, IconDownload,
+  IconRefresh, IconSpinner, IconTrash, IconWifiOff, KpiCard, useToast,
 } from '../components/ui'
 
 const STATUS_TONE: Record<string, string> = {
   PENDING: 'warning', SYNCING: 'info', DONE: 'success', FAILED: 'danger', CONFLICT: 'danger',
 }
 
+const STATUS_LABEL: Record<string, string> = {
+  PENDING: 'waiting to send', SYNCING: 'sending…', DONE: 'sent',
+  FAILED: 'failed', CONFLICT: 'needs your decision',
+}
+
 export default function SyncCentre() {
-  const { api, online, sync, pendingCount, lastSync, refreshPending, connection, usingServer } = useApp()
+  const { api, online, sync, pendingCount, lastSync, refreshPending, connection, usingServer, serverStatus, recheckServer } = useApp()
   const navigate = useNavigate()
   const toast = useToast()
   const [items, setItems] = useState<OutboxItem[]>([])
   const [busy, setBusy] = useState(false)
   const [discarding, setDiscarding] = useState<OutboxItem | null>(null)
+  const [checking, setChecking] = useState(false)
+  /** Supabase answers, but the NMBR tables and functions have not been created. */
+  const notProvisioned = serverStatus === 'missing'
 
   const load = () => {
     setItems(api.pendingChanges().slice().reverse())
@@ -46,6 +54,12 @@ export default function SyncCentre() {
   }
 
   const queued = items.filter((i) => i.status === 'PENDING' || i.status === 'SYNCING')
+  const checkAgain = async () => {
+    setChecking(true)
+    await recheckServer()
+    load()
+    setChecking(false)
+  }
   const conflicts = items.filter((i) => i.status === 'CONFLICT')
   const failed = items.filter((i) => i.status === 'FAILED')
   const done = items.filter((i) => i.status === 'DONE')
@@ -75,8 +89,52 @@ export default function SyncCentre() {
         </div>
       )}
 
+      {notProvisioned && (
+        <Card className="card-pad mb-4 border-amber-300 bg-amber-50/60">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-amber-900">
+                <IconAlert /> The municipal database has not been set up yet
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs text-amber-900">
+                Supabase is reachable and the sign-in works, but the NMBR tables and functions have not been created on
+                it yet, so nothing has been uploaded. This is <span className="font-semibold">not a data loss</span>:
+                every change below is safe on this device and uploads by itself once the setup is done.
+              </p>
+              <ol className="mt-2 list-inside list-decimal space-y-1 text-xs text-amber-900">
+                <li>Download the setup SQL below (it contains the whole database definition).</li>
+                <li>Open the Supabase project → <span className="font-semibold">SQL Editor</span> → paste the file → <span className="font-semibold">Run</span>.</li>
+                <li>Come back here and press <span className="font-semibold">Check the server again</span> — the queue uploads on its own.</li>
+              </ol>
+            </div>
+            <div className="flex flex-col gap-2">
+              <a className="btn btn-primary btn-sm" href="/setup/NMBR-supabase-setup.sql" download>
+                <IconDownload /> Download setup SQL
+              </a>
+              <a className="btn btn-secondary btn-sm" href="/setup/NMBR-demonstration-data.sql" download>
+                <IconDownload /> Optional: demonstration data
+              </a>
+              <Button variant="secondary" size="sm" loading={checking} onClick={() => void checkAgain()}>
+                <IconRefresh /> Check the server again
+              </Button>
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] text-amber-900">
+            Until then the registry runs entirely on this device: search, encoding and duplicate checking all keep
+            working, and the duplicate rules are enforced locally exactly as the database enforces them.
+            See <span className="mono">docs/DEPLOY_CLOUDFLARE.md</span> for the full deployment steps.
+          </p>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Waiting to send" value={queued.length} sub="Queued on this device" tone={queued.length ? 'warning' : 'success'} icon={<IconCloud />} />
+        <KpiCard
+          label={notProvisioned ? 'Waiting for server setup' : 'Waiting to send'}
+          value={queued.length}
+          sub={notProvisioned ? 'Safe on this device' : 'Queued on this device'}
+          tone={queued.length ? 'warning' : 'success'}
+          icon={<IconCloud />}
+        />
         <KpiCard label="Needs your decision" value={conflicts.length} sub="The server found a clash" tone={conflicts.length ? 'danger' : 'success'} icon={<IconAlert />} />
         <KpiCard label="Failed attempts" value={failed.length} sub="Will retry automatically" tone={failed.length ? 'warning' : 'neutral'} />
         <KpiCard label="Sent" value={done.length} sub={lastSync ? `Last sync ${relativeTime(lastSync)}` : 'Not synced yet'} tone="success" icon={<IconCheck />} />
@@ -96,6 +154,14 @@ export default function SyncCentre() {
           <div className="flex items-center justify-between gap-2">
             <span className="text-ink-soft">Queued changes</span>
             <span className="font-semibold text-ink">{pendingCount}</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-ink-soft">Municipal database</span>
+            <Badge tone={serverStatus === 'ready' ? 'success' : serverStatus === 'missing' ? 'warning' : 'muted'}>
+              {serverStatus === 'ready' ? 'Set up'
+                : serverStatus === 'missing' ? 'Not set up yet'
+                  : serverStatus === 'unconfigured' ? 'Not configured' : 'Checking…'}
+            </Badge>
           </div>
         </div>
       </Card>
@@ -158,14 +224,24 @@ export default function SyncCentre() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-ink">{item.summary}</p>
                   <p className="mt-0.5 text-[11px] text-ink-soft">
-                    {item.operation} · queued {relativeTime(item.created_at)} · {item.attempts} attempt(s)
-                    {item.error ? ` · ${item.error}` : ''}
+                    {item.operation} · queued {relativeTime(item.created_at)}
+                    {!notProvisioned && ` · ${item.attempts} attempt(s)`}
                   </p>
+                  {item.error && (
+                    <p className={cn('mt-1 text-[11px]', notProvisioned ? 'text-amber-800' : 'text-red-700')}>
+                      {notProvisioned && item.status === 'PENDING'
+                        ? 'Waiting for the municipal database to be set up — no action needed.'
+                        : item.error}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <StatusBadge status={item.status} />
-                  <Badge tone={STATUS_TONE[item.status] ?? 'neutral'}>{item.status.toLowerCase()}</Badge>
-                  {(item.status === 'PENDING' || item.status === 'FAILED') && (
+                  <Badge tone={STATUS_TONE[item.status] ?? 'neutral'}>
+                    {notProvisioned && item.status === 'PENDING'
+                      ? 'waiting for server setup'
+                      : STATUS_LABEL[item.status] ?? item.status.toLowerCase()}
+                  </Badge>
+                  {(item.status === 'PENDING' || item.status === 'FAILED') && !notProvisioned && (
                     <Button size="sm" variant="ghost" loading={busy} onClick={() => void retryOne(item)}>
                       <IconSpinner /> Retry
                     </Button>

@@ -32,6 +32,7 @@ Pages → your project → **Custom domains** → add e.g. `nmbr.nabua.gov.ph`, 
 With no Supabase deployment the application runs against the **on-device registry copy**:
 
 * The bundled demonstration data (12 barangays, 160 members, 15 duplicate cases) seeds automatically on first load.
+* The app detects that the database is missing and says so in plain language instead of reporting failed uploads; queued work waits safely and uploads itself after setup.
 * Sign in with any demonstration account (below). The sign-in screen reports that you are on the on-device copy.
 * Search, add, duplicate checking, editing, transfers, duplicate review, data quality, reports, imports and the audit log all work.
 * Changes are queued in the Sync Centre and are sent to PostgreSQL automatically once the functions are deployed and an online sign-in succeeds.
@@ -51,27 +52,35 @@ Demonstration accounts (change these before real use):
 
 Do this when you want one shared registry across all barangay offices instead of per-device copies.
 
-1. **Run the schema.** Supabase → **SQL Editor** → paste and run each file in order:
+**Until you do, the app says so plainly** — the Sync Centre shows *“The municipal database has not been set up yet”*, keeps every queued change safe on the device, and uploads the queue by itself once the setup below is finished. Nothing is lost and nothing is reported as a failure.
 
-   ```
-   supabase/migrations/0001_schema.sql
-   supabase/migrations/0002_functions.sql
-   supabase/migrations/0003_guard_triggers.sql
-   supabase/migrations/0004_rpc_registry.sql
-   supabase/migrations/0005_rpc_duplicates.sql
-   supabase/migrations/0006_rpc_import_admin.sql
-   supabase/migrations/0007_security_rls.sql
-   ```
+### 3a. The easy way (from the app itself)
 
-   Each file is idempotent, so a re-run is safe. The migrations create the tables, the fuzzy-matching functions, the duplicate guard, the RPCs and the row-level security policies.
+1. In NMBR open **Sync Centre** (or **Settings → Municipal server**).
+2. Press **Download setup SQL** — the file is built from the migrations at build time, so it always matches the schema the app was tested against.
+3. Supabase → **SQL Editor** → **New query** → paste the whole file → **Run**. Wait for *“Success. No rows returned”*.
+4. Back in the app press **Check the server again**. The queue uploads automatically.
 
-2. **Load the barangays and the demonstration data (optional):**
+The file `setup/NMBR-supabase-setup.sql` (158 KB) is also inside the deployment zip, so you can hand it to whoever administers Supabase.
 
-   ```
-   supabase/seed.sql
-   ```
+Optionally, `setup/NMBR-demonstration-data.sql` loads the 12 barangays and 160 fictional members for training. Never run it on a database that already holds real resident records.
 
-   Idempotent as well; skip it for a clean production start (barangays are the only thing you normally want, see below).
+### 3b. The manual way (migrations one by one)
+
+Supabase → **SQL Editor** → paste and run each file in order:
+
+```
+supabase/migrations/0001_schema.sql
+supabase/migrations/0002_functions.sql
+supabase/migrations/0003_guard_triggers.sql
+supabase/migrations/0004_rpc_registry.sql
+supabase/migrations/0005_rpc_duplicates.sql
+supabase/migrations/0006_rpc_import_admin.sql
+supabase/migrations/0007_security_rls.sql
+supabase/migrations/0008_health.sql
+```
+
+Each file is idempotent, so a re-run is safe. The migrations create the tables, the fuzzy-matching functions, the duplicate guard, the RPCs, the row-level security policies and the provisioning probe (`fn_schema_info`) the app uses to tell “not set up yet” apart from “offline”.
 
 3. **Create the real staff accounts.** Authentication → **Users → Add user** for each staff member, using their official municipal email. Then set the matching role rows:
 
@@ -86,7 +95,7 @@ Do this when you want one shared registry across all barangay offices instead of
 
 4. **Set the barangay list** for the municipality (Settings → Barangays, or SQL) so transfers and counts are correct.
 
-5. **Verify.** Sign in with a real account. The connection badge turns green and says *Connected*; the Sync Centre drains any queued offline work.
+5. **Verify.** Sign in with a real account. The connection badge turns green and says *Connected*, **Settings → Municipal server** reports *Set up and ready*, and the Sync Centre drains any queued offline work.
 
 ### Build-time configuration (only if you fork the project)
 
@@ -113,7 +122,7 @@ npm ci
 npm run typecheck      # TypeScript
 npm test               # UI acceptance tests (offline backend)
 npm run test:db        # PostgreSQL rule tests against an embedded Postgres
-npm run build:app      # produces dist/ and the PWA service worker
+npm run build:app      # regenerates public/setup/*.sql, then builds dist/ and the service worker
 ```
 
 Zip the contents of `dist/` (not the folder itself) and upload again, or connect the Git repository to Cloudflare Pages with:

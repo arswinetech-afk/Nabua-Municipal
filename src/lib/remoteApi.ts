@@ -30,6 +30,7 @@ type RpcName =
   | 'fn_log_event' | 'fn_list_users' | 'fn_upsert_user' | 'fn_get_settings' | 'fn_save_settings'
   | 'fn_import_create_batch' | 'fn_import_add_rows' | 'fn_import_summary' | 'fn_import_rows'
   | 'fn_import_set_decision' | 'fn_import_set_all_decisions' | 'fn_import_commit' | 'fn_link_auth_user'
+  | 'fn_schema_info'
 
 export class RemoteError extends Error {
   code?: string
@@ -43,9 +44,47 @@ export class RemoteError extends Error {
   }
 }
 
+/**
+ * True when the request never reached PostgreSQL.
+ *
+ * Every browser words this differently — Chrome "Failed to fetch", Safari
+ * "Load failed", Firefox "NetworkError when attempting to fetch resource",
+ * Node/undici "fetch failed" — and all of them throw a TypeError. Getting this
+ * wrong is costly: a dropped connection misread as an answer makes the app
+ * think the database is fine and quietly lose confidence in the server.
+ */
 function isNetworkError(err: unknown): boolean {
+  if (!err) return false
+  const e = err as { message?: string; code?: string; status?: number; name?: string }
   const message = err instanceof Error ? err.message : String(err)
-  return /Failed to fetch|NetworkError|network|timeout|ERR_/i.test(message)
+  if (/Failed to fetch|fetch failed|load failed|NetworkError|network request failed|network error|timeout|timed out|ERR_|net::|ECONN|ENOTFOUND|ENETUNREACH|offline/i.test(message)) {
+    return true
+  }
+  // A rejected fetch (transport level) is always a TypeError and never carries a
+  // PostgREST/SQL error code.
+  return err instanceof TypeError && !e.code && e.status == null
+}
+
+/**
+ * True when PostgREST answered, but the NMBR migrations have not been deployed.
+ *
+ * This is a *configuration* state, not a failed change: the server is reachable
+ * and healthy, it simply does not know the registry yet. The client must keep
+ * the encoder working locally and clearly say "the database has not been set up"
+ * instead of reporting a queue of failures.
+ *
+ *   PGRST202 — Could not find the function public.fn_x in the schema cache
+ *   PGRST205 — Could not find the table 'public.x' in the schema cache
+ *   42883    — undefined_function (PostgreSQL)
+ *   42P01    — undefined_table (PostgreSQL)
+ */
+export function isSchemaMissingError(err: unknown): boolean {
+  if (!err) return false
+  const e = err as { code?: string; message?: string; details?: string; hint?: string }
+  const code = String(e.code ?? '')
+  if (code === 'PGRST202' || code === 'PGRST205' || code === '42883' || code === '42P01') return true
+  const text = [e.message, e.details, e.hint].filter(Boolean).join(' ')
+  return /could not find the (function|table)|in the schema cache|relation .* does not exist|function .* does not exist/i.test(text)
 }
 
 /** Structured errors raised by the database guard arrive as P0005 with JSON detail. */
@@ -63,6 +102,12 @@ function parseDbError(err: unknown): RemoteError {
     }
   }
   const clean = message.replace(/^NMBR_[A-Z_]+:\s*/, '')
+  if (isSchemaMissingError(e)) {
+    return new RemoteError(
+      'The municipal database has not been set up yet. Run the NMBR setup SQL in Supabase, then retry.',
+      'NOT_PROVISIONED', detail, false,
+    )
+  }
   return new RemoteError(clean, e.code, detail, isNetworkError(e))
 }
 
@@ -78,6 +123,26 @@ export class RemoteApi implements RegistryApi {
     if (!client) throw new Error('Supabase is not configured')
     this.sb = client
     this.current = this.readCachedSession()
+  }
+
+  /**
+   * Is the NMBR schema deployed on this Supabase project?
+   *
+   *   'ready'   — fn_schema_info() answered, so the migrations ran
+   *   'missing' — the project answered but does not know the registry
+   *   'unknown' — could not tell (offline or signed out)
+   */
+  async probeSchema(): Promise<'ready' | 'missing' | 'unknown'> {
+    try {
+      await this.rpc('fn_schema_info')
+      return 'ready'
+    } catch (err) {
+      const parsed = err instanceof RemoteError ? err : parseDbError(err)
+      if (parsed.code === 'NOT_PROVISIONED') return 'missing'
+      if (parsed.isNetwork) return 'unknown'
+      // Signed out, or a permission/validation error: the function exists.
+      return parsed.code === '401' || parsed.code === '403' ? 'unknown' : 'ready'
+    }
   }
 
   private readCachedSession(): SessionUser | null {

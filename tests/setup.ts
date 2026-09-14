@@ -2,6 +2,12 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, beforeEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 
+// Must be set before src/lib/supabase.ts is imported (setup files run first), so
+// the suite exercises the offline registry path and never opens a socket.
+process.env.VITE_SUPABASE_URL = ''
+process.env.VITE_SUPABASE_ANON_KEY = ''
+process.env.VITE_SUPABASE_ENABLED = 'false'
+
 /**
  * The tests exercise the offline path (LocalApi + outbox), which is the same code
  * path the office uses when the municipal link drops. No Supabase host is

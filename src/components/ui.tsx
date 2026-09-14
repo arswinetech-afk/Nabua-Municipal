@@ -160,20 +160,38 @@ export function Modal({
   dismissable?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // Callbacks are held in refs so the effect below depends only on `open`.
+  // Depending on `onClose` meant the effect re-ran on every keystroke (each
+  // render creates a new closure) and re-focused the dialog — which pulled the
+  // caret out of whichever field the user was typing into.
+  const closeRef = useRef(onClose)
+  const dismissableRef = useRef(dismissable)
+  closeRef.current = onClose
+  dismissableRef.current = dismissable
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && dismissable) onClose()
+      if (e.key === 'Escape' && dismissableRef.current) closeRef.current()
     }
     document.addEventListener('keydown', onKey)
     const previous = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    ref.current?.focus()
+    // Move focus into the dialog once, and only when it is not already inside:
+    // this keeps keyboard users oriented without disturbing an input.
+    const node = ref.current
+    if (node && !node.contains(document.activeElement)) {
+      const firstField = node.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      )
+      if (firstField) firstField.focus()
+      else node.focus({ preventScroll: true })
+    }
     return () => {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = previous
     }
-  }, [open, onClose, dismissable])
+  }, [open])
 
   if (!open) return null
   const width = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl' }[size]

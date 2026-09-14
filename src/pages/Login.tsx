@@ -12,7 +12,7 @@ const DEMO_ACCOUNTS = [
 ]
 
 export default function Login() {
-  const { signIn, user, online, pendingCount, api } = useApp()
+  const { signIn, user, online, pendingCount, api, serverStatus } = useApp()
   const navigate = useNavigate()
   const toast = useToast()
   const [email, setEmail] = useState('')
@@ -86,11 +86,13 @@ export default function Login() {
           <Card className="card-pad">
             <h2 className="text-base font-bold text-ink">Office sign in</h2>
             <p className="mt-1 text-xs text-ink-soft">
-              {online
-                ? SUPABASE_ENABLED
-                  ? 'The municipal server is reachable. If it cannot be reached again mid-shift, work continues on the on-device registry copy.'
-                  : 'Running in standalone registry mode (no server configured).'
-                : 'No connection detected — sign in with your office credentials to continue offline.'}
+              {!online
+                ? 'No connection detected — sign in with your office credentials to continue offline.'
+                : serverStatus === 'missing'
+                  ? 'The server is reachable but its database has not been created yet, so the registry runs on this device. Ask the system administrator to run the setup SQL.'
+                  : SUPABASE_ENABLED
+                    ? 'The municipal server is reachable. If it cannot be reached again mid-shift, work continues on the on-device registry copy.'
+                    : 'Running in standalone registry mode (no server configured).'}
             </p>
 
             {!online && (

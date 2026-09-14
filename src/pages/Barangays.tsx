@@ -231,7 +231,13 @@ export default function Barangays() {
       >
         <div className="space-y-3">
           <Field label="Barangay name" required>
-            <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="San Isidro" />
+            <input
+              className="input"
+              autoFocus
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="San Isidro"
+            />
           </Field>
           <Field label="District / cluster" hint="Optional grouping used in reports.">
             <input className="input" value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} placeholder="Poblacion Cluster" />

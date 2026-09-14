@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { getApi, type ApiClient, type SyncEvent } from '../lib/apiClient'
+import { getApi, type ApiClient, type ServerStatus, type SyncEvent } from '../lib/apiClient'
 import { getConnectionState, onConnectionChange, type ConnectionState, probeConnection } from '../lib/supabase'
 import type { SessionUser } from '../lib/api'
 import type { SystemSettings } from '../lib/types'
@@ -17,6 +17,9 @@ type AppState = {
   pendingCount: number
   lastSync: string | null
   sessionNotice: string | null
+  /** Whether the central database has been set up (see ServerStatus). */
+  serverStatus: ServerStatus
+  recheckServer: () => Promise<ServerStatus>
   signIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
   signOut: () => Promise<void>
   refreshSettings: () => Promise<void>
@@ -47,12 +50,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0)
   const [lastSync, setLastSync] = useState<string | null>(null)
   const [sessionNotice, setSessionNotice] = useState<string | null>(null)
+  const [serverStatus, setServerStatus] = useState<ServerStatus>(() => api.serverStatus)
   const [tick, setTick] = useState(0)
   const userRef = useRef<SessionUser | null>(null)
 
   const refreshPending = useCallback(() => {
     setPendingCount(api.pendingChanges().filter((p) => p.status !== 'DONE').length)
     setLastSync(api.lastSyncedAt())
+    setServerStatus(api.serverStatus)
   }, [api])
 
   const refreshSettings = useCallback(async () => {
@@ -63,6 +68,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       /* keep defaults */
     }
   }, [api])
+
+  const recheckServer = useCallback(async () => {
+    const status = await api.recheckServer()
+    setServerStatus(status)
+    refreshPending()
+    return status
+  }, [api, refreshPending])
 
   const sync = useCallback(async () => {
     const result = await api.syncNow()
@@ -114,9 +126,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           message: e.detail ? `${e.detail}. It will sync automatically when the connection returns.` : undefined,
         })
       }
+      if (e.type === 'not-provisioned') {
+        toast.push({
+          tone: 'warning',
+          title: 'The municipal database is not set up yet',
+          message: 'Your work is saved on this device and will upload automatically once the setup SQL has been run in Supabase.',
+        })
+      }
     })
-    const timer = setInterval(() => {
-      if (userRef.current && api.pendingChanges().some((p) => p.status !== 'DONE')) void sync()
+    const timer = setInterval(async () => {
+      if (!userRef.current) return
+      // While the database is missing, re-check occasionally instead of retrying
+      // the Queue every minute against a server that cannot accept it.
+      if (api.serverStatus === 'missing') {
+        const status = await api.recheckServer()
+        setServerStatus(status)
+        if (status !== 'ready') return
+      }
+      if (api.pendingChanges().some((p) => p.status !== 'DONE')) void sync()
     }, 60_000)
     const onReconnect = () => void probeConnection()
     window.addEventListener('online', onReconnect)
@@ -155,6 +182,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setUser(res.data)
       setSessionNotice(null)
       await refreshSettings()
+      void api.checkServer(0).then(setServerStatus).catch(() => undefined)
       refreshPending()
       toast.push({ tone: 'success', title: `Welcome, ${res.data.name}`, message: `Signed in as ${res.data.role.replace('_', ' ').toLowerCase()}.` })
       return { ok: true }
@@ -179,6 +207,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pendingCount,
     lastSync,
     sessionNotice,
+    serverStatus,
+    recheckServer,
     signIn,
     signOut,
     refreshSettings,

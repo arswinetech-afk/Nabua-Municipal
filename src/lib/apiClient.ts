@@ -12,7 +12,7 @@
  *             as a CONFLICT and shown in the Sync Centre for a human decision.
  */
 import { LocalApi } from './localApi'
-import { RemoteApi } from './remoteApi'
+import { RemoteApi, RemoteError, isSchemaMissingError } from './remoteApi'
 import { getConnectionState, getSupabase, probeConnection, watchConnectivity } from './supabase'
 import type {
   ApiResult, CreatePersonResult, DuplicateComparison, ImportRow, ImportSummary, MergeOptions,
@@ -31,7 +31,21 @@ type Operation =
 
 export type SyncEvent = {
   type: 'queued' | 'pushed' | 'conflict' | 'failed' | 'online' | 'offline' | 'mirrored'
+  | 'provisioning' | 'not-provisioned'
   detail?: string
+}
+
+/** Deployment state of the central database, as far as the browser can tell. */
+export type ServerStatus = 'unconfigured' | 'unknown' | 'ready' | 'missing'
+
+/** Message shown on queued work while the database has not been deployed yet. */
+export const WAITING_FOR_SETUP_MESSAGE =
+  'Waiting for the municipal database to be set up. This change is safe on this device and will upload automatically afterwards.'
+
+/** True when the failure means “the server answered but has no NMBR schema”. */
+export function isProvisioningFailure(err: unknown): boolean {
+  if (err instanceof RemoteError) return err.code === 'NOT_PROVISIONED'
+  return isSchemaMissingError(err)
 }
 
 export class ApiClient implements RegistryApi {
@@ -42,14 +56,26 @@ export class ApiClient implements RegistryApi {
   private sessionSource: 'remote' | 'local' = 'local'
   /** Set when a sign-in fell back to the local registry; read by the sign-in screen. */
   signInNotice: string | null = null
+  /** null = not checked yet; false = Supabase reachable but the schema is absent. */
+  private provisioned: boolean | null = null
+  private provisioningCheckedAt = 0
 
-  constructor() {
+  /**
+   * @param options.remote inject a specific backend (used by the tests to
+   *   reproduce a Supabase project that has not been set up yet). Omit it in the
+   *   application: the client is then built from the configured Supabase project.
+   */
+  constructor(options?: { remote?: RemoteApi | null }) {
     this.local = new LocalApi()
     let remote: RemoteApi | null = null
-    try {
-      remote = getSupabase() ? new RemoteApi() : null
-    } catch {
-      remote = null
+    if (options && 'remote' in options) {
+      remote = options.remote ?? null
+    } else {
+      try {
+        remote = getSupabase() ? new RemoteApi() : null
+      } catch {
+        remote = null
+      }
     }
     this.remote = remote
     watchConnectivity()
@@ -69,9 +95,51 @@ export class ApiClient implements RegistryApi {
     return !!this.remote && getConnectionState() !== 'offline' && navigator.onLine
   }
 
-  /** True when reads/writes are currently being served by PostgreSQL. */
+  /**
+   * True when reads and writes are currently being served by PostgreSQL.
+   *
+   * When the deployed server has no NMBR schema yet, this stays false so that
+   * every write is applied locally and queued instead of being fired at a
+   * database that cannot accept it.
+   */
   get usingServer(): boolean {
-    return !!this.remote && this.online && this.sessionSource === 'remote'
+    return !!this.remote && this.online && this.sessionSource === 'remote' && this.provisioned !== false
+  }
+
+  /** Deployment state of the central database, for the Sync Centre and Settings. */
+  get serverStatus(): ServerStatus {
+    if (!this.remote) return 'unconfigured'
+    if (this.provisioned === true) return 'ready'
+    if (this.provisioned === false) return 'missing'
+    return 'unknown'
+  }
+
+  /**
+   * Ask the server whether the NMBR schema is deployed.
+   * Cached for a short while so ordinary traffic does not re-probe constantly.
+   */
+  async checkServer(maxAgeMs = 60_000): Promise<ServerStatus> {
+    if (!this.remote || !navigator.onLine) return this.serverStatus
+    if (this.provisioned !== null && Date.now() - this.provisioningCheckedAt < maxAgeMs) return this.serverStatus
+    const result = await this.remote.probeSchema()
+    this.provisioningCheckedAt = Date.now()
+    if (result === 'ready') {
+      this.provisioned = true
+      this.emit({ type: 'provisioning', detail: 'Municipal server ready' })
+      return 'ready'
+    }
+    if (result === 'missing') {
+      const wasUnknown = this.provisioned !== false
+      this.provisioned = false
+      if (wasUnknown) {
+        this.emit({
+          type: 'not-provisioned',
+          detail: 'The municipal server is reachable but the NMBR tables and functions have not been created yet.',
+        })
+      }
+      return 'missing'
+    }
+    return this.serverStatus
   }
 
   onEvent(fn: (e: SyncEvent) => void): () => void {
@@ -147,6 +215,8 @@ export class ApiClient implements RegistryApi {
         this.sessionSource = 'remote'
         this.remote.setSession(res.data)
         localStorage.setItem('nmbr.session.source', 'remote')
+        this.provisioned = true
+        this.provisioningCheckedAt = Date.now()
         void this.refreshMirror()
         return res
       }
@@ -519,14 +589,32 @@ export class ApiClient implements RegistryApi {
     return this.local.outboxSnapshot()
   }
 
+  /**
+   * Replay the queue against the municipal server.
+   *
+   * Three outcomes are distinguished, because they mean very different things to
+   * the person at the desk:
+   *   • pushed    — the change reached PostgreSQL
+   *   • conflict  — the server refused it because of a duplicate; a human decides
+   *   • waiting   — the server has no NMBR schema yet (setup not run). The change
+   *                 stays queued and is retried automatically once it is set up.
+   *                 It is NOT counted as a failure and does not burn retries.
+   */
   async syncNow(): Promise<{ pushed: number; failed: number; conflicts: number }> {
     if (!this.remote || this.syncing) return { pushed: 0, failed: 0, conflicts: 0 }
-    const state = await probeConnection()
-    if (state !== 'online') return { pushed: 0, failed: 0, conflicts: 0 }
+    if (!(await this.serverReachable())) return { pushed: 0, failed: 0, conflicts: 0 }
+
+    const serverStatus = await this.checkServer()
+    if (serverStatus === 'missing') {
+      this.parkQueueForSetup()
+      return { pushed: 0, failed: 0, conflicts: 0 }
+    }
+
     this.syncing = true
     let pushed = 0
     let failed = 0
     let conflicts = 0
+    let provisioningStopped = false
     try {
       for (const item of this.local.outboxSnapshot().filter((o) => o.status === 'PENDING' || o.status === 'FAILED')) {
         this.local.updateOutbox(item.id, { status: 'SYNCING', attempts: item.attempts + 1 })
@@ -544,13 +632,28 @@ export class ApiClient implements RegistryApi {
             this.emit({ type: 'pushed', detail: item.summary })
           }
         } catch (err) {
+          if (isProvisioningFailure(err)) {
+            // The database is not deployed. Stop hammering it: put this item and
+            // everything after it back in the waiting state.
+            this.provisioned = false
+            this.provisioningCheckedAt = Date.now()
+            provisioningStopped = true
+            this.local.updateOutbox(item.id, { status: 'PENDING', error: WAITING_FOR_SETUP_MESSAGE })
+            this.emit({
+              type: 'not-provisioned',
+              detail: 'The municipal database has not been set up yet, so queued work is waiting.',
+            })
+            break
+          }
           failed++
           const message = err instanceof Error ? err.message : String(err)
           this.local.updateOutbox(item.id, { status: 'FAILED', error: message })
           this.emit({ type: 'failed', detail: `${item.summary}: ${message}` })
         }
       }
-      // drop completed items, keep failures/conflicts for review
+
+      if (provisioningStopped) this.parkQueueForSetup()
+      // drop completed items, keep failures/conflicts/waiting for review
       const remaining = this.local.outboxSnapshot().filter((o) => o.status !== 'DONE')
       this.local.setOutbox(remaining)
       this.local.setLastSync(new Date().toISOString())
@@ -559,6 +662,47 @@ export class ApiClient implements RegistryApi {
       this.syncing = false
     }
     return { pushed, failed, conflicts }
+  }
+
+  /**
+   * Keep every outstanding change on the device, flagged as waiting for the
+   * database setup rather than failed. Retry counts are left untouched so the
+   * queue is not worn down while the administrator prepares the server.
+   */
+  private parkQueueForSetup() {
+    const outstanding = this.local
+      .outboxSnapshot()
+      .filter((o) => o.status !== 'DONE' && o.status !== 'CONFLICT')
+    if (outstanding.length === 0) return
+    this.local.setOutbox(
+      outstanding.map((o) => ({ ...o, status: 'PENDING' as const, error: WAITING_FOR_SETUP_MESSAGE })),
+    )
+    this.emit({ type: 'not-provisioned', detail: `${outstanding.length} change(s) waiting for the database setup` })
+  }
+
+  /**
+   * Can the central database be talked to at all?
+   *
+   * `probeConnection()` answers this from the compiled-in project settings. When
+   * no project is compiled in but a client exists anyway (an injected one, as in
+   * the tests) the schema probe is the better judge: it reports 'unknown' when
+   * the network is down and 'missing'/'ready' when something answered.
+   */
+  private async serverReachable(): Promise<boolean> {
+    const state = await probeConnection()
+    if (state === 'online') return true
+    if (state === 'unconfigured' && this.remote) {
+      const status = await this.checkServer()
+      return status === 'ready' || status === 'missing'
+    }
+    return false
+  }
+
+  /** Force a fresh provisioning check (used by the “check again” buttons). */
+  async recheckServer(): Promise<ServerStatus> {
+    this.provisioned = null
+    this.provisioningCheckedAt = 0
+    return this.checkServer(0)
   }
 
   private async replay(item: OutboxItem): Promise<'ok' | 'conflict'> {
