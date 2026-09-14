@@ -1,2 +1,5 @@
 # Cloudflare Pages SPA fallback: every unknown path serves the app shell.
+# Existing static files always win; the rule below only states that explicitly for
+# the downloadable database setup files.
+/setup/*  /setup/:splat  200
 /*  /index.html  200
