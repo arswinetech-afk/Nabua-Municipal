@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import type { OutboxItem } from '../lib/types'
+import { WAITING_FOR_SIGNIN_MESSAGE } from '../lib/apiClient'
 import { cn, formatDateTime, relativeTime } from '../lib/utils'
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, IconAlert, IconCheck, IconCloud, IconDownload,
@@ -19,7 +20,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export default function SyncCentre() {
-  const { api, online, sync, pendingCount, lastSync, refreshPending, connection, usingServer, serverStatus, recheckServer } = useApp()
+  const { api, online, sync, pendingCount, lastSync, refreshPending, connection, usingServer, serverStatus, recheckServer, needsSignIn } = useApp()
   const navigate = useNavigate()
   const toast = useToast()
   const [items, setItems] = useState<OutboxItem[]>([])
@@ -54,6 +55,7 @@ export default function SyncCentre() {
   }
 
   const queued = items.filter((i) => i.status === 'PENDING' || i.status === 'SYNCING')
+  const waitingForSignIn = needsSignIn || items.some((i) => i.status === 'PENDING' && i.error === WAITING_FOR_SIGNIN_MESSAGE)
   const checkAgain = async () => {
     setChecking(true)
     await recheckServer()
@@ -127,9 +129,41 @@ export default function SyncCentre() {
         </Card>
       )}
 
+      {waitingForSignIn && !notProvisioned && (
+        <Card className="card-pad mb-4 border-rose-300 bg-rose-50/60">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-rose-900">
+                <IconAlert /> These changes are waiting for a sign-in, not failing
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs text-rose-900">
+                The municipal server is reachable and set up, but it does not recognise a session from this
+                device — usually because the sign-in fell back to the on-device registry, or the session
+                expired mid-shift. Retrying cannot fix that, so the queue is <span className="font-semibold">parked
+                safely on this device</span> and no more attempts are counted. Sign in with your office account
+                and everything below uploads by itself, in order.
+              </p>
+              <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-rose-900">
+                <li>Nothing is lost: every change below stays on this device until it is accepted by the server.</li>
+                <li>Encoding, search and duplicate checking keep working while you wait.</li>
+                <li>If the queue previously showed “Your session is not recognised”, that was this state.</li>
+              </ul>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Button variant="primary" size="sm" onClick={() => navigate('/login?reauth=1')}>
+                <IconCheck /> Sign in to upload the queue
+              </Button>
+              <Button variant="secondary" size="sm" onClick={load}>
+                <IconRefresh /> Reload queue
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
-          label={notProvisioned ? 'Waiting for server setup' : 'Waiting to send'}
+          label={notProvisioned ? 'Waiting for server setup' : waitingForSignIn ? 'Waiting for sign-in' : 'Waiting to send'}
           value={queued.length}
           sub={notProvisioned ? 'Safe on this device' : 'Queued on this device'}
           tone={queued.length ? 'warning' : 'success'}
@@ -218,37 +252,51 @@ export default function SyncCentre() {
           />
         ) : (
           <ul className="divide-y divide-line">
-            {items.map((item) => (
-              <li key={item.id} className={cn('flex flex-wrap items-start justify-between gap-2 px-4 py-3',
-                item.status === 'CONFLICT' && 'bg-red-50/40')}>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-ink">{item.summary}</p>
-                  <p className="mt-0.5 text-[11px] text-ink-soft">
-                    {item.operation} · queued {relativeTime(item.created_at)}
-                    {!notProvisioned && ` · ${item.attempts} attempt(s)`}
-                  </p>
-                  {item.error && (
-                    <p className={cn('mt-1 text-[11px]', notProvisioned ? 'text-amber-800' : 'text-red-700')}>
-                      {notProvisioned && item.status === 'PENDING'
-                        ? 'Waiting for the municipal database to be set up — no action needed.'
-                        : item.error}
+            {items.map((item) => {
+              const parkedForSignIn = item.status === 'PENDING' && item.error === WAITING_FOR_SIGNIN_MESSAGE
+              return (
+                <li key={item.id} className={cn('flex flex-wrap items-start justify-between gap-2 px-4 py-3',
+                  item.status === 'CONFLICT' && 'bg-red-50/40')}>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink">{item.summary}</p>
+                    <p className="mt-0.5 text-[11px] text-ink-soft">
+                      {item.operation} · queued {relativeTime(item.created_at)}
+                      {!notProvisioned && !parkedForSignIn && ` · ${item.attempts} attempt(s)`}
                     </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge tone={STATUS_TONE[item.status] ?? 'neutral'}>
-                    {notProvisioned && item.status === 'PENDING'
-                      ? 'waiting for server setup'
-                      : STATUS_LABEL[item.status] ?? item.status.toLowerCase()}
-                  </Badge>
-                  {(item.status === 'PENDING' || item.status === 'FAILED') && !notProvisioned && (
-                    <Button size="sm" variant="ghost" loading={busy} onClick={() => void retryOne(item)}>
-                      <IconSpinner /> Retry
-                    </Button>
-                  )}
-                </div>
-              </li>
-            ))}
+                    {item.error && (
+                      <p className={cn('mt-1 text-[11px]',
+                        parkedForSignIn || (notProvisioned && item.status === 'PENDING') ? 'text-amber-800' : 'text-red-700')}>
+                        {parkedForSignIn
+                          ? 'Waiting for a sign-in to the municipal server — no retries are being burned, and nothing is lost.'
+                          : notProvisioned && item.status === 'PENDING'
+                            ? 'Waiting for the municipal database to be set up — no action needed.'
+                            : item.error}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone={parkedForSignIn ? 'warning' : STATUS_TONE[item.status] ?? 'neutral'}>
+                      {parkedForSignIn
+                        ? 'waiting for sign-in'
+                        : notProvisioned && item.status === 'PENDING'
+                          ? 'waiting for server setup'
+                          : STATUS_LABEL[item.status] ?? item.status.toLowerCase()}
+                    </Badge>
+                    {parkedForSignIn ? (
+                      <Button size="sm" variant="secondary" onClick={() => navigate('/login?reauth=1')}>
+                        Sign in
+                      </Button>
+                    ) : (
+                      (item.status === 'PENDING' || item.status === 'FAILED') && !notProvisioned && (
+                        <Button size="sm" variant="ghost" loading={busy} onClick={() => void retryOne(item)}>
+                          <IconSpinner /> Retry
+                        </Button>
+                      )
+                    )}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </Card>

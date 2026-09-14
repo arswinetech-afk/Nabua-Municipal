@@ -30,6 +30,7 @@ import {
 } from './duplicateEngine'
 import { fullName, identityKey, normalizeDate, normalizeText, trigramSimilarity } from './normalize'
 import { uid, isToday, sha256Hex } from './utils'
+import { verifyOfflineCredential } from './offlineCredential'
 import {
   barangayOverview, dashboardStats, dataQuality, live, qualityRecords, ageGroupCounts, sexCounts, statusCounts,
 } from './analytics'
@@ -38,6 +39,21 @@ const STORAGE_KEY = 'nmbr.local.v1'
 const SESSION_KEY = 'nmbr.session.v1'
 const SESSION_TIMEOUT_FALLBACK = 30
 const SALT = 'nmbr-local-demo-salt'
+
+/**
+ * Whether the on-device registry starts life with the fictional demonstration
+ * registry (12 barangays, 160 members, demo passwords).
+ *
+ * Development and test builds keep it so the system can be explored and the
+ * suite has data to work with. Production builds start EMPTY: a published
+ * municipal registry must not carry fictional residents or the published
+ * demonstration passwords on office devices — real records arrive through the
+ * mirror once a device signs in, and real accounts sign in offline through the
+ * verifier kept by src/lib/offlineCredential.ts. Set VITE_DEMO_SEED=true to
+ * build a training/demo bundle on purpose.
+ */
+export const DEMO_SEED_ENABLED =
+  import.meta.env.DEV || (import.meta.env.VITE_DEMO_SEED as string | undefined) === 'true'
 
 type ImportBatchRecord = {
   id: string
@@ -114,6 +130,35 @@ export class LocalApi implements RegistryApi {
   }
 
   private buildSeed(): LocalDB {
+    // Production builds start with an empty on-device registry: no fictional
+    // residents, no demonstration passwords. Real records arrive through the
+    // mirror after the first online sign-in.
+    if (!DEMO_SEED_ENABLED) {
+      return {
+        version: 1,
+        seeded_at: nowIso(),
+        barangays: [],
+        persons: [],
+        households: [],
+        history: {},
+        cases: [],
+        audit: [],
+        users: [],
+        settings: {
+          weights: { ...DEFAULT_WEIGHTS },
+          thresholds: { ...DEFAULT_THRESHOLDS },
+          session_timeout_minutes: SESSION_TIMEOUT_FALLBACK,
+          mask_contact_in_lists: true,
+          block_on_very_likely: true,
+          require_reason_on_edit: true,
+          municipality: 'Nabua',
+          province: 'Camarines Sur',
+        },
+        importBatches: [],
+        outbox: [],
+        lastSyncAt: null,
+      }
+    }
     const barangays: Barangay[] = seed.barangays.map((b, i) => ({
       id: `b${(i + 1).toString().padStart(3, '0')}`,
       name: b.name,
@@ -269,7 +314,7 @@ export class LocalApi implements RegistryApi {
         barangay_scope: null,
         created_at: daysAgoIso(700),
         last_login: daysAgoIso(i + 1),
-        password_hash: '',
+        password_hash: u.password_hash ?? '',
       })),
       settings: {
         weights: { ...DEFAULT_WEIGHTS },
@@ -289,12 +334,15 @@ export class LocalApi implements RegistryApi {
 
   /** Password hashes are derived lazily so the seed file stays human readable. */
   private async ensureCredentials() {
-    const plaintexts: Record<string, string> = {}
-    for (const u of seed.users) plaintexts[u.email] = u.password
+    // seed.json carries salted hashes only — no usable password ships in the
+    // bundle. Stores persisted by older builds are topped up from the same
+    // hashes so an upgraded device keeps its demonstration logins.
+    const hashes: Record<string, string> = {}
+    for (const u of seed.users) hashes[u.email] = u.password_hash ?? ''
     let changed = false
     for (const user of this.db.users) {
       if (!user.password_hash) {
-        user.password_hash = await sha256Hex(`${SALT}:${user.email}:${plaintexts[user.email] ?? ''}`)
+        user.password_hash = hashes[user.email] ?? await sha256Hex(`${SALT}:${user.email}:`)
         changed = true
       }
     }
@@ -312,6 +360,19 @@ export class LocalApi implements RegistryApi {
     await this.ensureCredentials()
     const user = this.db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase())
     if (!user) {
+      // A real office account that this device already authenticated against
+      // the municipal server may sign in again without a connection; the
+      // verifier (never the password) was kept at that online sign-in.
+      const cached = await verifyOfflineCredential(email, password)
+      if (cached && cached.active) {
+        this.current = cached
+        this.lastActivity = Date.now()
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ user: cached, at: Date.now() }))
+        this.audit('LOGIN', 'USERS', cached.id, cached.name, null,
+          'Signed in to the on-device registry copy (offline re-sign-in)')
+        this.persist()
+        return { ok: true, data: cached }
+      }
       return { ok: false, error: 'No office account matches that email address.', code: 'NO_ACCOUNT' }
     }
     if (!user.active) return { ok: false, error: 'This account has been deactivated.', code: 'INACTIVE' }
@@ -350,8 +411,14 @@ export class LocalApi implements RegistryApi {
         return null
       }
       const still = this.db.users.find((u) => u.id === parsed.user.id)
-      if (!still?.active) return null
-      this.current = { ...parsed.user, role: still.role, active: still.active }
+      if (still) {
+        if (!still.active) return null
+        this.current = { ...parsed.user, role: still.role, active: still.active }
+      } else {
+        // An account of the municipal server (production devices carry no
+        // local user list): the cached profile was verified at sign-in.
+        this.current = { ...parsed.user }
+      }
       this.lastActivity = Date.now()
       return this.current
     } catch {

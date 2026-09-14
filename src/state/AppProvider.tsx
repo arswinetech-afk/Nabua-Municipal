@@ -17,6 +17,8 @@ type AppState = {
   pendingCount: number
   lastSync: string | null
   sessionNotice: string | null
+  /** Queued work is parked because the municipal server has no session from this device. */
+  needsSignIn: boolean
   /** Whether the central database has been set up (see ServerStatus). */
   serverStatus: ServerStatus
   recheckServer: () => Promise<ServerStatus>
@@ -50,6 +52,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0)
   const [lastSync, setLastSync] = useState<string | null>(null)
   const [sessionNotice, setSessionNotice] = useState<string | null>(null)
+  const [needsSignIn, setNeedsSignIn] = useState(false)
   const [serverStatus, setServerStatus] = useState<ServerStatus>(() => api.serverStatus)
   const [tick, setTick] = useState(0)
   const userRef = useRef<SessionUser | null>(null)
@@ -58,6 +61,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPendingCount(api.pendingChanges().filter((p) => p.status !== 'DONE').length)
     setLastSync(api.lastSyncedAt())
     setServerStatus(api.serverStatus)
+    setNeedsSignIn(api.needsSignIn)
   }, [api])
 
   const refreshSettings = useCallback(async () => {
@@ -133,6 +137,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           message: 'Your work is saved on this device and will upload automatically once the setup SQL has been run in Supabase.',
         })
       }
+      if (e.type === 'auth-required') {
+        toast.push({
+          tone: 'warning',
+          title: 'Sign in to the municipal server to upload your queue',
+          message: 'The server is reachable but does not recognise a session from this device. Your changes are safe here and upload automatically after you sign in.',
+        })
+      }
     })
     const timer = setInterval(async () => {
       if (!userRef.current) return
@@ -194,6 +205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       userRef.current = res.data
       setUser(res.data)
       setSessionNotice(null)
+      setNeedsSignIn(false)
       await refreshSettings()
       void api.checkServer(0).then(setServerStatus).catch(() => undefined)
       refreshPending()
@@ -220,6 +232,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     pendingCount,
     lastSync,
     sessionNotice,
+    needsSignIn,
     serverStatus,
     recheckServer,
     signIn,

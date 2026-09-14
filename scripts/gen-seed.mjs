@@ -11,6 +11,7 @@
  * All names, addresses and numbers are FICTIONAL and generated deterministically.
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -338,7 +339,13 @@ const seed = {
   municipality: 'Nabua',
   province: 'Camarines Sur',
   barangays: BARANGAYS,
-  users: USERS,
+  // The published bundle must never carry usable demonstration passwords:
+  // seed.json ships the salted hash the on-device registry verifies against,
+  // exactly as src/lib/localApi.ts computes it (SALT:email:password).
+  users: USERS.map(({ password, ...u }) => ({
+    ...u,
+    password_hash: createHash('sha256').update(`nmbr-local-demo-salt:${u.email}:${password}`).digest('hex'),
+  })),
   households: householdPool.slice(0, 12),
   persons,
   duplicate_cases: duplicateCases,

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '../state/AppProvider'
 import { SUPABASE_ENABLED, SUPABASE_URL } from '../lib/supabase'
 import { Button, Card, Field, IconAlert, IconShieldCheck, IconWifiOff, useToast } from '../components/ui'
@@ -11,16 +11,32 @@ const DEMO_ACCOUNTS = [
   { role: 'Viewer', email: 'viewer@nabua.gov.ph', password: 'Viewer@2026' },
 ]
 
+/**
+ * The demonstration accounts (with their passwords) are a training aid, not a
+ * production feature: a published municipal sign-in page must not print
+ * credentials. They appear only in development builds, or in a bundle built
+ * on purpose with VITE_SHOW_DEMO_ACCOUNTS=true (see docs/GO_LIVE.md).
+ */
+const SHOW_DEMO_ACCOUNTS =
+  import.meta.env.DEV || (import.meta.env.VITE_SHOW_DEMO_ACCOUNTS as string | undefined) === 'true'
+
 export default function Login() {
   const { signIn, user, online, pendingCount, api, serverStatus } = useApp()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  /**
+   * `?reauth=1`: the device already has an on-device session but the municipal
+   * server needs its own sign-in before the queued work can upload. The form
+   * is shown anyway, with an explanation of what the sign-in unlocks.
+   */
+  const reauth = params.get('reauth') === '1'
   const toast = useToast()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (user) return <Navigate to="/" replace />
+  if (user && !reauth) return <Navigate to="/" replace />
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,6 +50,13 @@ export default function Login() {
     }
     if (api.signInNotice) {
       toast.push({ tone: 'warning', title: 'Working from the on-device registry', message: api.signInNotice })
+    } else if (reauth) {
+      toast.push({
+        tone: 'success', title: 'Connected to the municipal server',
+        message: pendingCount > 0
+          ? `Signed in — your ${pendingCount} queued change(s) are uploading now.`
+          : 'Signed in to the municipal server.',
+      })
     } else {
       toast.push({ tone: 'success', title: 'Signed in' })
     }
@@ -84,7 +107,9 @@ export default function Login() {
       <div className="flex flex-1 items-center justify-center px-4 py-8 sm:px-8">
         <div className="w-full max-w-md">
           <Card className="card-pad">
-            <h2 className="text-base font-bold text-ink">Office sign in</h2>
+            <h2 className="text-base font-bold text-ink">
+              {reauth ? 'Sign in to the municipal server' : 'Office sign in'}
+            </h2>
             <p className="mt-1 text-xs text-ink-soft">
               {!online
                 ? 'No connection detected — sign in with your office credentials to continue offline.'
@@ -101,6 +126,19 @@ export default function Login() {
                 <span>
                   Offline mode. Records you create are stored on this device and synchronised when the connection returns
                   {pendingCount > 0 ? ` (${pendingCount} change(s) already queued)` : ''}.
+                </span>
+              </div>
+            )}
+
+            {reauth && (
+              <div className="mt-3 flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900">
+                <IconAlert className="mt-0.5" />
+                <span>
+                  This device is working from its on-device registry copy, and the municipal server does not
+                  recognise a session from it — that is why queued changes are waiting. Sign in with your office
+                  account to reconnect
+                  {pendingCount > 0 ? ` and upload your ${pendingCount} queued change(s)` : ''}. Your local work
+                  is kept either way.
                 </span>
               </div>
             )}
@@ -140,29 +178,32 @@ export default function Login() {
               </Button>
             </form>
 
-            <div className="mt-4 rounded-md border border-line bg-slate-50 p-3">
-              <p className="text-[11px] font-semibold text-ink-soft uppercase">Demonstration accounts</p>
-              <ul className="mt-2 space-y-1.5">
-                {DEMO_ACCOUNTS.map((a) => (
-                  <li key={a.email} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                    <span className="font-medium text-ink">{a.role}</span>
-                    <button
-                      type="button"
-                      className="link mono text-left"
-                      onClick={() => {
-                        setEmail(a.email)
-                        setPassword(a.password)
-                      }}
-                    >
-                      {a.email} · {a.password}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[10px] text-ink-soft">
-                Click an account to fill the form. Change these credentials before real use.
-              </p>
-            </div>
+            {SHOW_DEMO_ACCOUNTS && (
+              <div className="mt-4 rounded-md border border-line bg-slate-50 p-3">
+                <p className="text-[11px] font-semibold text-ink-soft uppercase">Demonstration accounts</p>
+                <ul className="mt-2 space-y-1.5">
+                  {DEMO_ACCOUNTS.map((a) => (
+                    <li key={a.email} className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <span className="font-medium text-ink">{a.role}</span>
+                      <button
+                        type="button"
+                        className="link mono text-left"
+                        onClick={() => {
+                          setEmail(a.email)
+                          setPassword(a.password)
+                        }}
+                      >
+                        {a.email} · {a.password}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[10px] text-ink-soft">
+                  Training build only. Click an account to fill the form; production bundles never print
+                  credentials (see docs/GO_LIVE.md).
+                </p>
+              </div>
+            )}
           </Card>
 
           <p className="mt-4 text-center text-[11px] text-ink-soft">

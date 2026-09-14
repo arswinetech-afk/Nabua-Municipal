@@ -51,22 +51,41 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function ConnectionPill() {
-  const { connection, pendingCount, sync, online } = useApp()
+  const { connection, pendingCount, sync, online, needsSignIn } = useApp()
+  const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
-  const label = !online ? 'Offline' : 'Connected'
-  const tone = !online ? 'bg-amber-500/20 text-amber-100 ring-amber-300/30' : 'bg-emerald-500/20 text-emerald-100 ring-emerald-300/30'
+  // The network can be fine while the server has no session from this device:
+  // saying "Connected" then is what made the field report confusing (a green
+  // pill above a queue of "session is not recognised" failures).
+  const blocked = needsSignIn && pendingCount > 0
+  const label = !online ? 'Offline' : blocked ? 'Sign in to sync' : 'Connected'
+  const tone = !online
+    ? 'bg-amber-500/20 text-amber-100 ring-amber-300/30'
+    : blocked
+      ? 'bg-rose-500/25 text-rose-100 ring-rose-300/40'
+      : 'bg-emerald-500/20 text-emerald-100 ring-emerald-300/30'
   return (
     <button
       type="button"
       onClick={async () => {
+        if (blocked) {
+          navigate('/login?reauth=1')
+          return
+        }
         setBusy(true)
         await sync()
         setBusy(false)
       }}
-      title={online ? 'Connected to the municipal server — click to synchronise queued work' : 'Working offline — queued work will sync automatically'}
+      title={
+        blocked
+          ? 'The municipal server needs a sign-in from this device before queued work can upload — click to sign in'
+          : online
+            ? 'Connected to the municipal server — click to synchronise queued work'
+            : 'Working offline — queued work will sync automatically'
+      }
       className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset', tone)}
     >
-      {online ? <IconCloud className="h-3.5 w-3.5" /> : <IconWifiOff className="h-3.5 w-3.5" />}
+      {blocked ? <IconAlert className="h-3.5 w-3.5" /> : online ? <IconCloud className="h-3.5 w-3.5" /> : <IconWifiOff className="h-3.5 w-3.5" />}
       {label}
       {pendingCount > 0 && <span className="rounded bg-white/20 px-1.5">{pendingCount} queued</span>}
       {busy && <IconRefresh className="h-3.5 w-3.5 animate-spin" />}
@@ -75,7 +94,7 @@ function ConnectionPill() {
 }
 
 export default function Layout() {
-  const { user, signOut, pendingCount, online, lastSync, sessionNotice, settings } = useApp()
+  const { user, signOut, pendingCount, online, lastSync, sessionNotice, settings, needsSignIn } = useApp()
   const location = useLocation()
   const navigate = useNavigate()
   const [drawer, setDrawer] = useState(false)
@@ -187,6 +206,18 @@ export default function Layout() {
               {pendingCount > 0 ? ` ${pendingCount} change(s) are queued and will sync automatically.` : ''}
             </span>
             <Link to="/sync" className="link font-semibold">View queue</Link>
+          </div>
+        )}
+
+        {needsSignIn && pendingCount > 0 && (
+          <div className="no-print flex flex-wrap items-center gap-2 border-b border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 sm:px-5">
+            <IconAlert />
+            <span className="font-semibold">Queued work is waiting for a sign-in.</span>
+            <span>
+              The municipal server is reachable but does not recognise a session from this device, so
+              {' '}{pendingCount} change(s) are held safely here instead of being retried. Nothing is lost.
+            </span>
+            <Link to="/login?reauth=1" className="link font-semibold">Sign in to upload</Link>
           </div>
         )}
 

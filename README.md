@@ -37,7 +37,7 @@ npm run preview        # serve the production build locally
 `nmbr-cloudflare-pages.zip` is the upload bundle for Cloudflare Pages; its contents are the files in
 `dist/`, with `index.html` at the root.
 
-## Demonstration accounts
+## Demonstration accounts (development and training builds only)
 
 | Role | Email | Password |
 | --- | --- | --- |
@@ -46,8 +46,13 @@ npm run preview        # serve the production build locally
 | Encoder | `pedro.reyes@nabua.gov.ph` | `Encoder@2026` |
 | Viewer (read-only) | `viewer@nabua.gov.ph` | `Viewer@2026` |
 
-These are fictional accounts with fictional data. Change them before the system carries real
-resident information.
+These are fictional accounts with fictional data. **Production builds never
+print them and never seed the fictional registry on devices**; a training
+bundle can re-enable both with `VITE_SHOW_DEMO_ACCOUNTS=true` and
+`VITE_DEMO_SEED=true`. Before the system carries real resident information,
+follow **`docs/GO_LIVE.md`**: repair the sign-in linking (migration 0009),
+purge the demonstration data (`supabase/go_live_cleanup.sql`), create the
+real barangays and staff accounts, and reset every office device.
 
 ## How duplicate prevention works
 

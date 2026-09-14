@@ -13,6 +13,7 @@
  */
 import { LocalApi } from './localApi'
 import { RemoteApi, RemoteError, isSchemaMissingError } from './remoteApi'
+import { forgetOfflineCredential, rememberOfflineCredential } from './offlineCredential'
 import { getConnectionState, getSupabase, probeConnection, watchConnectivity } from './supabase'
 import type {
   ApiResult, CreatePersonResult, DuplicateComparison, ImportRow, ImportSummary, MergeOptions,
@@ -31,7 +32,7 @@ type Operation =
 
 export type SyncEvent = {
   type: 'queued' | 'pushed' | 'conflict' | 'failed' | 'online' | 'offline' | 'mirrored'
-  | 'provisioning' | 'not-provisioned'
+  | 'provisioning' | 'not-provisioned' | 'auth-required'
   detail?: string
 }
 
@@ -42,10 +43,42 @@ export type ServerStatus = 'unconfigured' | 'unknown' | 'ready' | 'missing'
 export const WAITING_FOR_SETUP_MESSAGE =
   'Waiting for the municipal database to be set up. This change is safe on this device and will upload automatically afterwards.'
 
+/**
+ * Message shown on queued work while no municipal-server session is active.
+ *
+ * FIELD REPORT 2026-09-15: a device whose server sign-in had fallen back to the
+ * on-device registry kept replaying its queue against the database every
+ * minute. Every replay was refused with "Your session is not recognised" and
+ * every refusal burned another retry (6, 24, 31, 46 attempts…), although no
+ * number of retries can ever fix a missing sign-in. Authentication failures are
+ * now recognised for what they are — a state, not an error — and the queue is
+ * parked under this message until the person signs in, after which it uploads
+ * by itself.
+ */
+export const WAITING_FOR_SIGNIN_MESSAGE =
+  'Waiting for sign-in to the municipal server. This change is safe on this device and will upload automatically once you sign in.'
+
 /** True when the failure means “the server answered but has no NMBR schema”. */
 export function isProvisioningFailure(err: unknown): boolean {
   if (err instanceof RemoteError) return err.code === 'NOT_PROVISIONED'
   return isSchemaMissingError(err)
+}
+
+/**
+ * True when the server answered “there is no session behind this request”.
+ *
+ * The guard triggers raise NMBR_UNAUTHENTICATED (errcode P0002) whenever the
+ * JWT carries no linked, active profile; Supabase itself answers 401 when the
+ * token is gone. Retrying cannot help — only a sign-in can — so the sync engine
+ * parks the queue instead of burning retries against it.
+ */
+export function isAuthFailure(err: unknown): boolean {
+  if (!err) return false
+  const e = err as { code?: string; message?: string }
+  const code = String(e.code ?? '')
+  if (code === 'P0002' || code === '401' || code === 'UNAUTHENTICATED') return true
+  const text = `${e.message ?? ''} ${err instanceof Error ? err.message : String(err)}`
+  return /NMBR_UNAUTHENTICATED|session is not recognised|not authenticated|invalid token|jwt expired|session expired|re-authentication required/i.test(text)
 }
 
 export class ApiClient implements RegistryApi {
@@ -59,6 +92,12 @@ export class ApiClient implements RegistryApi {
   /** null = not checked yet; false = Supabase reachable but the schema is absent. */
   private provisioned: boolean | null = null
   private provisioningCheckedAt = 0
+  /**
+   * Set when the server refused queued work because no session is active.
+   * While it is set the queue is parked (no retries are burned) and the UI asks
+   * for a sign-in; a successful server sign-in clears it and flushes the queue.
+   */
+  private authBlocked = false
 
   /**
    * @param options.remote inject a specific backend (used by the tests to
@@ -104,6 +143,14 @@ export class ApiClient implements RegistryApi {
    */
   get usingServer(): boolean {
     return !!this.remote && this.online && this.sessionSource === 'remote' && this.provisioned !== false
+  }
+
+  /**
+   * True when queued work is parked because the municipal server has no active
+   * session from this device. The queue uploads by itself after a sign-in.
+   */
+  get needsSignIn(): boolean {
+    return this.authBlocked
   }
 
   /** Deployment state of the central database, for the Sync Centre and Settings. */
@@ -169,7 +216,11 @@ export class ApiClient implements RegistryApi {
       if (res.ok) return res
       const code = (res as { code?: string }).code
       const networkFailure = code === 'NETWORK' || /failed to fetch|network|timeout/i.test(res.error ?? '')
-      if (networkFailure) {
+      // A dead session is like a dropped link for the person at the desk: the
+      // entry is kept on the device and uploaded after signing in again,
+      // instead of being bounced back as a hard error.
+      if (networkFailure || isAuthFailure(res)) {
+        if (isAuthFailure(res)) this.blockForSignIn()
         const localRes = await localFn()
         if (localRes.ok) {
           this.queue(operation, payload, summary)
@@ -217,10 +268,20 @@ export class ApiClient implements RegistryApi {
         localStorage.setItem('nmbr.session.source', 'remote')
         this.provisioned = true
         this.provisioningCheckedAt = Date.now()
+        // A fresh server session releases anything the queue was holding for:
+        // parked work uploads right away, without waiting for the next timer.
+        const hadParkedWork = this.authBlocked || this.local.outboxSnapshot().some((o) => o.status !== 'DONE')
+        this.authBlocked = false
+        this.emit({ type: 'online', detail: 'Signed in to the municipal server' })
         void this.refreshMirror()
+        if (hadParkedWork) void this.syncNow()
+        rememberOfflineCredential(res.data, password)
         return res
       }
       if (res.code !== 'OFFLINE') remoteFailure = res
+      if (remoteFailure && /deactivated|not registered/i.test(remoteFailure.error ?? '')) {
+        forgetOfflineCredential(email)
+      }
     }
 
     const localRes = await this.local.signIn(email, password)
@@ -250,6 +311,7 @@ export class ApiClient implements RegistryApi {
       const user = await this.remote.restoreSession()
       if (user) {
         this.sessionSource = 'remote'
+        this.authBlocked = false
         void this.refreshMirror()
         return user
       }
@@ -438,6 +500,16 @@ export class ApiClient implements RegistryApi {
       if (remoteRes.ok) return remoteRes
       const code = (remoteRes as { code?: string }).code
       if (code === 'DUPLICATE_REVIEW_REQUIRED') return remoteRes
+      // A refused session must not swallow the entry: keep it on the device
+      // and let the person sign in again — the queue then uploads by itself.
+      if (isAuthFailure(remoteRes)) {
+        this.blockForSignIn()
+        const localRes = await localFn()
+        if ((localRes as { ok: boolean }).ok) {
+          this.queue(operation, { ...payload, local_id: clientRef }, summary)
+        }
+        return localRes
+      }
       if (code && !/NETWORK/i.test(code)) return remoteRes
     }
     const localRes = await localFn()
@@ -602,6 +674,10 @@ export class ApiClient implements RegistryApi {
    */
   async syncNow(): Promise<{ pushed: number; failed: number; conflicts: number }> {
     if (!this.remote || this.syncing) return { pushed: 0, failed: 0, conflicts: 0 }
+    // A parked queue waits for a person, not for a timer: replaying it against
+    // a server that has no session from this device would only burn retries
+    // (field report: 46 attempts against "Your session is not recognised").
+    if (this.authBlocked) return { pushed: 0, failed: 0, conflicts: 0 }
     if (!(await this.serverReachable())) return { pushed: 0, failed: 0, conflicts: 0 }
 
     const serverStatus = await this.checkServer()
@@ -617,7 +693,11 @@ export class ApiClient implements RegistryApi {
     let provisioningStopped = false
     try {
       for (const item of this.local.outboxSnapshot().filter((o) => o.status === 'PENDING' || o.status === 'FAILED')) {
-        this.local.updateOutbox(item.id, { status: 'SYNCING', attempts: item.attempts + 1 })
+        // Remember the count before bumping it: the outbox snapshot shares its
+        // objects with the store, so `item.attempts` moves as soon as the row
+        // is marked SYNCING — a parked refusal must hand the count back.
+        const priorAttempts = item.attempts
+        this.local.updateOutbox(item.id, { status: 'SYNCING', attempts: priorAttempts + 1 })
         try {
           const result = await this.replay(item)
           if (result === 'conflict') {
@@ -643,6 +723,17 @@ export class ApiClient implements RegistryApi {
               type: 'not-provisioned',
               detail: 'The municipal database has not been set up yet, so queued work is waiting.',
             })
+            break
+          }
+          if (isAuthFailure(err)) {
+            // The server is fine — it simply has no session from this device.
+            // No amount of retrying can change that, so park this item and
+            // everything after it (undoing the attempt just counted) and ask
+            // the person to sign in; the queue flushes itself afterwards.
+            this.local.updateOutbox(item.id, {
+              status: 'PENDING', error: WAITING_FOR_SIGNIN_MESSAGE, attempts: priorAttempts,
+            })
+            this.blockForSignIn()
             break
           }
           failed++
@@ -678,6 +769,42 @@ export class ApiClient implements RegistryApi {
       outstanding.map((o) => ({ ...o, status: 'PENDING' as const, error: WAITING_FOR_SETUP_MESSAGE })),
     )
     this.emit({ type: 'not-provisioned', detail: `${outstanding.length} change(s) waiting for the database setup` })
+  }
+
+  /** Mark the queue as waiting for a sign-in and tell the UI about it. */
+  private blockForSignIn() {
+    const firstBlock = !this.authBlocked
+    this.authBlocked = true
+    this.parkQueueForSignIn()
+    if (firstBlock) {
+      this.emit({
+        type: 'auth-required',
+        detail: 'The municipal server needs you to sign in again before queued work can upload.',
+      })
+    }
+  }
+
+  /**
+   * Keep every outstanding change on the device, flagged as waiting for a
+   * sign-in rather than failed. Retry counts are left untouched: a missing
+   * session is not the queue's fault and must not wear it down.
+   */
+  private parkQueueForSignIn() {
+    const outstanding = this.local
+      .outboxSnapshot()
+      .filter((o) => o.status !== 'DONE' && o.status !== 'CONFLICT')
+    if (outstanding.length === 0) return
+    this.local.setOutbox(
+      outstanding.map((o) => ({ ...o, status: 'PENDING' as const, error: WAITING_FOR_SIGNIN_MESSAGE })),
+    )
+  }
+
+  /**
+   * Release a sign-in block without signing in (for example after the session
+   * could be restored from another tab); the next sync re-proves the session.
+   */
+  releaseSignInBlock(): void {
+    this.authBlocked = false
   }
 
   /**
@@ -725,48 +852,48 @@ export class ApiClient implements RegistryApi {
         const res = await remote.updatePerson(p.id as unknown as string, p.patch as never, p.reason as string)
         if (!res.ok) {
           if (res.code === 'DUPLICATE_REVIEW_REQUIRED') return 'conflict'
-          throw new Error(res.error)
+          throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         }
         return 'ok'
       }
       case 'transferBarangay': {
         const res = await remote.transferBarangay(p as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'setPersonStatus': {
         const res = await remote.setPersonStatus(p.id as never, p.status as never, p.reason as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'openDuplicateCase': {
         const res = await remote.openDuplicateCase(p.a as never, p.b as never, p.source as never, p.notes as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'resolveDuplicateCase': {
         const res = await remote.resolveDuplicateCase(p.caseId as never, p.resolution as never, p.notes as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'mergePersons': {
         const res = await remote.mergePersons(p.keepId as never, p.mergeId as never, p.options as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'upsertUser': {
         const res = await remote.upsertUser(p.input as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'upsertBarangay': {
         const res = await remote.upsertBarangay(p.input as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'saveSettings': {
         const res = await remote.saveSettings(p.patch as never)
-        if (!res.ok) throw new Error(res.error)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }
       case 'logEvent': {

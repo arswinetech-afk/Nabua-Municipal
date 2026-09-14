@@ -33,9 +33,9 @@ Pages → your project → **Custom domains** → add e.g. `nmbr.nabua.gov.ph`, 
 
 With no Supabase deployment the application runs against the **on-device registry copy**:
 
-* The bundled demonstration data (12 barangays, 160 members, 15 duplicate cases) seeds automatically on first load.
+* In **training bundles** (`VITE_DEMO_SEED=true`) the bundled demonstration data (12 barangays, 160 members, 15 duplicate cases) seeds automatically on first load; production builds start with an empty on-device registry instead.
 * The app detects that the database is missing and says so in plain language instead of reporting failed uploads; queued work waits safely and uploads itself after setup.
-* Sign in with any demonstration account (below). The sign-in screen reports that you are on the on-device copy.
+* Training bundles can sign in with any demonstration account (below); production bundles print none. The sign-in screen reports that you are on the on-device copy.
 * Search, add, duplicate checking, editing, transfers, duplicate review, data quality, reports, imports and the audit log all work.
 * Changes are queued in the Sync Centre and are sent to PostgreSQL automatically once the functions are deployed and an online sign-in succeeds.
 
@@ -110,6 +110,13 @@ VITE_SUPABASE_ENABLED=true
 ```
 
 Setting `VITE_SUPABASE_ENABLED=false` produces a pure standalone deployment that never contacts the server.
+
+Production builds never print the demonstration accounts on the sign-in page and start every
+device with an empty on-device registry. To produce a deliberate **training** bundle instead,
+set `VITE_SHOW_DEMO_ACCOUNTS=true` and `VITE_DEMO_SEED=true` before building. When the
+municipality is ready to carry real residents and real staff accounts, follow
+**`docs/GO_LIVE.md`** (repair migration 0009, `supabase/go_live_cleanup.sql`, real barangays
+and accounts, device reset) — and never deploy a training bundle as the public site.
 
 ---
 

@@ -15,7 +15,7 @@ import App from '../src/App'
 import { AppProvider } from '../src/state/AppProvider'
 import { ToastProvider } from '../src/components/ui'
 import { Modal, Field, Button } from '../src/components/ui'
-import { ApiClient, isProvisioningFailure, WAITING_FOR_SETUP_MESSAGE } from '../src/lib/apiClient'
+import { ApiClient, isProvisioningFailure, WAITING_FOR_SETUP_MESSAGE, WAITING_FOR_SIGNIN_MESSAGE } from '../src/lib/apiClient'
 import type { RemoteApi } from '../src/lib/remoteApi'
 import { isSchemaMissingError } from '../src/lib/remoteApi'
 import { getApi } from '../src/lib/apiClient'
@@ -299,5 +299,130 @@ describe('REGRESSION 2b — queued work against a Supabase project with no schem
     expect(result.failed).toBe(0)
     expect(calls.pushed).toBe(1)
     expect(api.pendingChanges().filter((p) => p.status !== 'DONE')).toHaveLength(0)
+  })
+})
+
+/**
+ * REGRESSION 3 — field report 2026-09-15 (go-live blocking).
+ *
+ * Reproduced from the phone screenshots: the municipal server was reachable
+ * and set up, but the device had no session the server recognised (the sign-in
+ * had fallen back to the on-device registry). Every queued change was replayed
+ * against the database every minute and refused with "Your session is not
+ * recognised. Please sign in again." — 6, 24, 31, 46 attempts — although no
+ * number of retries can ever produce a session.
+ *
+ * Required behaviour: the refusal is recognised as a *state* (no active
+ * session), the queue is parked on the device without burning attempts, the
+ * automatic timer stops replaying it, and a sign-in to the municipal server
+ * flushes everything by itself.
+ */
+describe('REGRESSION 3 — a refused session parks the queue instead of burning retries', () => {
+  const unauthenticated = () => Object.assign(
+    new Error('Your session is not recognised. Please sign in again.'),
+    { code: 'P0002' },
+  )
+
+  function makeRemote() {
+    const calls = { createPerson: 0, signIn: 0 }
+    /** Flipped when the person finally signs in to the municipal server. */
+    const state = { serverSession: false }
+    const remote = {
+      mode: 'supabase' as const,
+      offlineCapable: false,
+      async probeSchema() { return 'ready' as const },
+      async signIn(email: string) {
+        calls.signIn++
+        if (!state.serverSession) {
+          // The sign-in falls back to the on-device registry, exactly as in
+          // the field: Supabase had no auth user linked to a profile yet.
+          return { ok: false as const, error: 'No NMBR profile is linked to this account.', code: 'NO_PROFILE' }
+        }
+        return {
+          ok: true as const,
+          data: {
+            id: 'u-real', name: 'Real Encoder', email, role: 'ENCODER' as const,
+            active: true, barangay_scope: null, last_login: null,
+          },
+        }
+      },
+      setSession() { /* nothing to cache */ },
+      async createPerson() {
+        calls.createPerson++
+        if (!state.serverSession) throw unauthenticated()
+        return {
+          ok: true as const,
+          person: {
+            id: 'srv-real-1', reference_no: 'NMBR-900001', first_name: 'Liza', middle_name: null,
+            last_name: 'Mercado', suffix: null, date_of_birth: '1988-08-08', sex: 'FEMALE',
+            civil_status: null, contact_number: null, address: null, purok: null, barangay_id: null,
+            status: 'ACTIVE' as const, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          },
+        }
+      },
+      async listBarangays() { return [] },
+      async personIndex() { return [] },
+      async listDuplicateCases() { return { total: 0, rows: [] } },
+    } as unknown as RemoteApi
+    return { remote, calls, state }
+  }
+
+  it('parks refused work as “waiting for sign-in” with zero attempts burned', async () => {
+    const { remote, calls } = makeRemote()
+    const api = new ApiClient({ remote })
+    await api.signIn('pedro.reyes@nabua.gov.ph', 'Encoder@2026')
+    expect(api.usingServer).toBe(false) // fell back to the on-device registry
+
+    await api.createPerson({
+      first_name: 'Liza', middle_name: null, last_name: 'Quebral',
+      date_of_birth: '1988-08-08', sex: 'FEMALE', barangay_id: seed.barangays[0].id ?? null,
+    })
+
+    const result = await api.syncNow()
+    expect(result).toEqual({ pushed: 0, failed: 0, conflicts: 0 })
+
+    const queued = api.pendingChanges().filter((p) => p.operation === 'createPerson')
+    expect(queued).toHaveLength(1)
+    expect(queued[0].status).toBe('PENDING')            // not FAILED
+    expect(queued[0].attempts).toBe(0)                  // no retry burn-down
+    expect(queued[0].error).toBe(WAITING_FOR_SIGNIN_MESSAGE)
+    expect(api.needsSignIn).toBe(true)
+    expect(calls.createPerson).toBe(1)                  // one replay, one refusal
+
+    // The every-minute timer must not hammer a server that can only answer
+    // "sign in again": while parked, sync is a no-op.
+    await api.syncNow()
+    await api.syncNow()
+    expect(calls.createPerson).toBe(1)
+    expect(api.pendingChanges().filter((p) => p.operation === 'createPerson')[0].attempts).toBe(0)
+
+    // The member stays usable on the device while the queue waits.
+    const found = await api.searchPersons({ query: 'Liza Quebral', limit: 5 })
+    expect(found.total).toBe(1)
+  })
+
+  it('flushes the parked queue automatically once the person signs in', async () => {
+    const { remote, calls, state } = makeRemote()
+    const api = new ApiClient({ remote })
+    await api.signIn('pedro.reyes@nabua.gov.ph', 'Encoder@2026')
+    await api.createPerson({
+      first_name: 'Liza', middle_name: null, last_name: 'Quebral',
+      date_of_birth: '1988-08-08', sex: 'FEMALE', barangay_id: seed.barangays[0].id ?? null,
+    })
+    await api.syncNow()
+    expect(api.needsSignIn).toBe(true)
+
+    // The administrator links the account (or the encoder signs in with the
+    // office credentials): the server session returns and the queue uploads
+    // without anyone pressing a retry button.
+    state.serverSession = true
+    const signedIn = await api.signIn('real.encoder@nabua.gov.ph', 'Office@2026')
+    expect(signedIn.ok).toBe(true)
+
+    await waitFor(() => {
+      expect(calls.createPerson).toBe(2) // one refusal while parked, one accepted replay
+      expect(api.pendingChanges().filter((p) => p.status !== 'DONE')).toHaveLength(0)
+    }, { timeout: 10_000 })
+    expect(api.needsSignIn).toBe(false)
   })
 })

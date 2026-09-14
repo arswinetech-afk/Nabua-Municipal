@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-09-14T14:10:55.514Z",
+ "generated_at": "2026-09-14T17:45:43.583Z",
  "municipality": "Nabua",
  "province": "Camarines Sur",
  "barangays": [
@@ -57,43 +57,43 @@
    "name": "Engr. Ramon Villaflor",
    "email": "admin@nabua.gov.ph",
    "role": "SYSTEM_ADMIN",
-   "password": "Admin@NMBR2026"
+   "password_hash": "138a91b8b232539e4608123f3d85d128e35cac06aab0a971732887419f19af42"
   },
   {
    "name": "Maria Santos",
    "email": "maria.santos@nabua.gov.ph",
    "role": "ADMINISTRATOR",
-   "password": "Admin@NMBR2026"
+   "password_hash": "29812b7b0f1c28d1510d0ff861918426812991f3e55331dcbf9774eae972505b"
   },
   {
    "name": "Josefina Ramos",
    "email": "josefina.ramos@nabua.gov.ph",
    "role": "ADMINISTRATOR",
-   "password": "Admin@NMBR2026"
+   "password_hash": "b307a2f5b97918078bdcaba42fbe6a9266ad0b58d25cf62c4858c8d17127e694"
   },
   {
    "name": "Pedro Reyes",
    "email": "pedro.reyes@nabua.gov.ph",
    "role": "ENCODER",
-   "password": "Encoder@2026"
+   "password_hash": "8c4163b772ebe8db2cbdae7fb33199cc1b25f0a108c912db85bc217380d46632"
   },
   {
    "name": "Ana Villanueva",
    "email": "ana.villanueva@nabua.gov.ph",
    "role": "ENCODER",
-   "password": "Encoder@2026"
+   "password_hash": "86e7d5850b8a74744e86da0a28598ff96ee4e387cf6c841b75d43bb406a88849"
   },
   {
    "name": "Liza Mercado",
    "email": "liza.mercado@nabua.gov.ph",
    "role": "ENCODER",
-   "password": "Encoder@2026"
+   "password_hash": "0fdc461e73465da80b6f6ceafab6b4ce8fd508d58d30ce9eda4432d060c4c1eb"
   },
   {
    "name": "Cornelio Bautista",
    "email": "viewer@nabua.gov.ph",
    "role": "VIEWER",
-   "password": "Viewer@2026"
+   "password_hash": "d2133ebcee4858ef331a7de24c91dbc55a87872a579230863b48c7569ed9e624"
   }
  ],
  "households": [
