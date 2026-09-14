@@ -6,9 +6,11 @@ dist/
 dist-ssr/
 *.local
 
-# the Cloudflare upload bundle is generated, not source
+# the Cloudflare upload bundle is generated, not source — the ready-to-deploy
+# archive is committed on purpose so it can be downloaded from GitHub
 *.zip
-nmbr-cloudflare-pages*/
+!nmbr-cloudflare-pages.zip
+nmbr-cloudflare-pages/
 
 # environment
 .env
