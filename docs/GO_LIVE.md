@@ -115,7 +115,12 @@ created from inside the app. Create it once, outside:
    e-mail, a strong temporary password, tick *Auto confirm user*.
 2. SQL Editor → run `supabase/bootstrap_first_admin.sql` after editing the
    two values (name, and the same e-mail in lower case). It refuses to run
-   if any active profile already exists.
+   once somebody has actually signed in (an active, linked profile). If a
+   run ever goes in with the placeholder values unedited, fix that row
+   (`update users set name = …, email = … where email = 'wrong…'`) or remove
+   it (`delete from users where email = 'wrong…' and auth_user_id is null`)
+   and run the file again — the upper-case placeholders make an unedited run
+   fail loudly instead of creating a junk profile.
 3. Sign in on the app with those credentials — the sign-in links login and
    profile, and you are in as `SYSTEM_ADMIN`. Change the temporary password
    afterwards in Authentication → Users.

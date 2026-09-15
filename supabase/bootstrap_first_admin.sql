@@ -38,24 +38,36 @@
 --  e-mail (unique constraint) and touches nothing else.
 -- =====================================================================
 
--- Safety net: if any ACTIVE profile already exists, stop — from that point
--- on accounts must be created inside the app by an administrator, so the
--- audit trail shows who created whom.
+-- Safety net: bootstrap closes forever once somebody has actually SIGNED IN
+-- (an active profile that is linked to an auth login). Profiles that merely
+-- exist — including one created by mistake with the placeholder values —
+-- do not close the window; fix or remove them and run this file again:
+--
+--   fix in place:  update users set name = 'Real Name', email = 'real@nabua.gov.ph'
+--                    where email = 'wrong@...';
+--   or remove:     delete from users where email = 'wrong@...' and auth_user_id is null;
+--
+-- From the moment a real sign-in exists, accounts must be created inside the
+-- app by an administrator, so the audit trail shows who created whom.
 do $$ begin
-  if exists (select 1 from users where active) then
+  if exists (select 1 from users where active and auth_user_id is not null) then
     raise exception
-      'BOOTSTRAP_REFUSED: an active profile already exists (%) — create further accounts from the Users page inside the app.',
-      (select email from users where active order by created_at limit 1)
+      'BOOTSTRAP_REFUSED: somebody has already signed in (%) — create further accounts from the Users page inside the app.',
+      (select email from users where active and auth_user_id is not null
+        order by last_login desc nulls last limit 1)
       using errcode = 'P0002';
   end if;
 end $$;
 
 -- ▼▼▼ edit these two values ▼▼▼
+-- The placeholders are UPPER CASE on purpose: if this file is run unedited,
+-- the insert fails on the users lower-case e-mail check instead of creating
+-- a junk profile that a later, correct run would trip over.
 insert into users (name, email, role, active)
 values (
-  'Your Full Name',                 -- ← real name, as it should appear in the audit log
-  'your.name@nabua.gov.ph',         -- ← LOWER CASE, exactly the e-mail used in step 1
-  'SYSTEM_ADMIN',                   -- first account should be SYSTEM_ADMIN
+  'YOUR FULL NAME',              -- ← real name, as it should appear in the audit log
+  'YOUR.NAME@NABUA.GOV.PH',      -- ← LOWER CASE, exactly the e-mail used in step 1
+  'SYSTEM_ADMIN',                -- first account should be SYSTEM_ADMIN
   true
 );
 -- ▲▲▲ edit these two values ▲▲▲

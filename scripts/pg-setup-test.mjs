@@ -178,6 +178,48 @@ if (!existsSync(cleanupFile)) {
   check('a second cleanup run changes nothing', true)
 }
 
+// ---------------------------------------------------------------------
+// BOOTSTRAP FIRST ADMIN: the chicken-and-egg kit must fail loudly when run
+// unedited, succeed once edited while nobody has signed in yet, and close
+// forever after the first real sign-in (field report 2026-09-15: an
+// unedited run created a placeholder profile that blocked the real one).
+// ---------------------------------------------------------------------
+console.log('\n▶ Bootstrap first admin: loud failure, open window, then closed')
+const bootstrapRaw = readFileSync(join(root, 'supabase', 'bootstrap_first_admin.sql'), 'utf8')
+
+let uneditedError = ''
+try {
+  await db.exec(bootstrapRaw)
+} catch (err) {
+  uneditedError = String(err?.message ?? err)
+}
+check('an unedited run fails on the lower-case e-mail check, creating nothing',
+  /lowercase|lower\(email\)|users_email_lower_chk/i.test(uneditedError), uneditedError.slice(0, 60))
+const junk = (await db.query(`select count(*)::int n from users where email <> lower(email) or email like 'your.name@%'`)).rows[0].n
+check('no placeholder profile was left behind', junk === 0)
+
+const edited = bootstrapRaw
+  .replace('YOUR FULL NAME', 'Bootstrap Admin')
+  .replace('YOUR.NAME@NABUA.GOV.PH', 'bootstrap.first@nabua.gov.ph')
+await db.exec(edited)
+const created = (await db.query(`
+  select email, role, active from users where email = 'bootstrap.first@nabua.gov.ph'
+`)).rows[0]
+check('the edited run creates the first SYSTEM_ADMIN while nobody has signed in',
+  created?.role === 'SYSTEM_ADMIN' && created?.active === true, JSON.stringify(created))
+
+// A real sign-in links a profile; from then on bootstrap is closed forever.
+await db.exec(`update users set auth_user_id = gen_random_uuid()
+                where email = 'bootstrap.first@nabua.gov.ph'`)
+let closedError = ''
+try {
+  await db.exec(edited.replace('bootstrap.first@nabua.gov.ph', 'second.admin@nabua.gov.ph'))
+} catch (err) {
+  closedError = String(err?.message ?? err)
+}
+check('after the first sign-in the bootstrap window is closed',
+  /BOOTSTRAP_REFUSED/.test(closedError), closedError.slice(0, 60))
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'
