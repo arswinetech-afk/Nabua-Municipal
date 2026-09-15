@@ -426,3 +426,75 @@ describe('REGRESSION 3 — a refused session parks the queue instead of burning 
     expect(api.needsSignIn).toBe(false)
   })
 })
+
+/**
+ * REGRESSION 4 — field report 2026-09-15, second Sync Centre screenshot.
+ *
+ * Two queued items were retried 27 and 67 times against refusals no retry
+ * can cure: a role the session does not hold (P0003), and a member encoded
+ * against the on-device demonstration registry whose barangay id ("b008")
+ * is not a uuid the server can know (22P02). Such refusals are decisions
+ * for a human — park them as CONFLICT once, never replay them again.
+ */
+describe('REGRESSION 4 — permanent rejections become decisions, not retry loops', () => {
+  function makeRemote() {
+    const calls = { createPerson: 0, upsertUser: 0 }
+    const remote = {
+      mode: 'supabase' as const,
+      offlineCapable: false,
+      async probeSchema() { return 'ready' as const },
+      async signIn() {
+        return { ok: false as const, error: 'No NMBR profile is linked to this account.', code: 'NO_PROFILE' }
+      },
+      setSession() { /* nothing to cache */ },
+      async createPerson() {
+        calls.createPerson++
+        throw Object.assign(new Error('invalid input syntax for type uuid: "b008"'), { code: '22P02' })
+      },
+      async upsertUser() {
+        calls.upsertUser++
+        return {
+          ok: false as const, code: 'P0003',
+          error: 'Your role (ADMINISTRATOR) is not permitted to perform this action. Required: SYSTEM_ADMIN.',
+        }
+      },
+      async listBarangays() { return [] },
+      async personIndex() { return [] },
+      async listDuplicateCases() { return { total: 0, rows: [] } },
+    } as unknown as RemoteApi
+    return { remote, calls }
+  }
+
+  it('parks un-replayable entries as “needs your decision” and never replays them again', async () => {
+    const { remote, calls } = makeRemote()
+    const api = new ApiClient({ remote })
+    await api.signIn('pedro.reyes@nabua.gov.ph', 'Encoder@2026')
+
+    // A member encoded against the on-device (demonstration) registry…
+    await api.createPerson({
+      first_name: 'AR', middle_name: null, last_name: 'Tech',
+      date_of_birth: '1990-01-01', sex: 'MALE', barangay_id: 'b008',
+    })
+    // …and a stale user save queued twelve hours ago.
+    api.local.queueOutbox({
+      operation: 'upsertUser',
+      payload: { input: { name: 'Stale Save', email: 'stale@nabua.gov.ph', role: 'ADMINISTRATOR' } },
+      summary: 'Save user stale@nabua.gov.ph',
+    })
+
+    const result = await api.syncNow()
+    expect(result).toEqual({ pushed: 0, failed: 0, conflicts: 2 })
+
+    const items = api.pendingChanges()
+    expect(items).toHaveLength(2)
+    expect(items.every((i) => i.status === 'CONFLICT')).toBe(true)
+    expect(items.every((i) => (i.error ?? '').includes('Retrying cannot fix this'))).toBe(true)
+    expect(items.every((i) => i.attempts === 0)).toBe(true)
+
+    // The every-minute timer must leave decisions alone.
+    await api.syncNow()
+    await api.syncNow()
+    expect(calls.createPerson).toBe(1)
+    expect(calls.upsertUser).toBe(1)
+  })
+})

@@ -81,6 +81,27 @@ export function isAuthFailure(err: unknown): boolean {
   return /NMBR_UNAUTHENTICATED|session is not recognised|not authenticated|invalid token|jwt expired|session expired|re-authentication required/i.test(text)
 }
 
+/**
+ * True when the server understood the change and refused it for a reason no
+ * retry can cure — a role the session does not hold (P0003), or data that
+ * cannot exist on the server (P0002-ish input syntax like a local-only
+ * demonstration barangay id "b008", check-constraint and foreign-key
+ * violations). FIELD REPORT 2026-09-15: such items were retried 27 and 67
+ * times. They are parked as CONFLICT ("needs your decision") instead: a
+ * human discards the stale copy or re-enters the record against the server.
+ */
+export function isPermanentRejection(err: unknown): boolean {
+  if (!err) return false
+  const e = err as { code?: string; message?: string }
+  const code = String(e.code ?? '')
+  if (code === 'P0003' || code === '22P02' || code === '23514' || code === '23503') return true
+  const text = `${e.message ?? ''} ${err instanceof Error ? err.message : String(err)}`
+  return /invalid input syntax|violates check constraint|violates foreign key|is not permitted to perform this action/i.test(text)
+}
+
+export const PERMANENT_REJECTION_GUIDANCE =
+  'Retrying cannot fix this: the entry references data or a permission that does not match the municipal server (for example a demonstration barangay that exists only on this device). Review it, discard the queued copy, and re-enter the record against the server.'
+
 export class ApiClient implements RegistryApi {
   readonly local: LocalApi
   readonly remote: RemoteApi | null
@@ -735,6 +756,19 @@ export class ApiClient implements RegistryApi {
             })
             this.blockForSignIn()
             break
+          }
+          if (isPermanentRejection(err)) {
+            // The server understood the change and refused it for a reason
+            // no retry can cure (wrong role, local-only ids, constraint
+            // violations). Park it as a decision for a human instead of
+            // wearing the queue down against it every minute.
+            const message = err instanceof Error ? err.message : String(err)
+            conflicts++
+            this.local.updateOutbox(item.id, {
+              status: 'CONFLICT', error: `${message} — ${PERMANENT_REJECTION_GUIDANCE}`, attempts: priorAttempts,
+            })
+            this.emit({ type: 'conflict', detail: `${item.summary}: ${message}` })
+            continue
           }
           failed++
           const message = err instanceof Error ? err.message : String(err)

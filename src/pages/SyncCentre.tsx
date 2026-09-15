@@ -233,8 +233,10 @@ export default function SyncCentre() {
           </ul>
           <p className="border-t border-line px-4 py-3 text-[11px] text-ink-soft">
             A conflict means the entry you made offline now clashes with the server — usually because another encoder
-            created the same resident in the meantime. Open the member in the Duplicate Center, decide which record
-            survives, then discard this queued copy.
+            created the same resident in the meantime, or because the queued copy references data that exists only on
+            this device (a demonstration barangay, for example) or needs a role your session does not hold. Open the
+            member in the Duplicate Center when it is a duplicate; otherwise discard the queued copy and re-enter the
+            record against the municipal registry. Nothing is retried against a conflict automatically.
           </p>
         </Card>
       )}
