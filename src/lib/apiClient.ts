@@ -94,9 +94,9 @@ export function isPermanentRejection(err: unknown): boolean {
   if (!err) return false
   const e = err as { code?: string; message?: string }
   const code = String(e.code ?? '')
-  if (code === 'P0003' || code === '22P02' || code === '23514' || code === '23503') return true
+  if (code === 'P0003' || code === '22P02' || code === '23514' || code === '23503' || code === '23505') return true
   const text = `${e.message ?? ''} ${err instanceof Error ? err.message : String(err)}`
-  return /invalid input syntax|violates check constraint|violates foreign key|is not permitted to perform this action/i.test(text)
+  return /invalid input syntax|violates check constraint|violates foreign key|duplicate key value violates unique constraint|is not permitted to perform this action/i.test(text)
 }
 
 export const PERMANENT_REJECTION_GUIDANCE =

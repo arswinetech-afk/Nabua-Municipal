@@ -289,11 +289,23 @@ export default function SyncCentre() {
                         Sign in
                       </Button>
                     ) : (
-                      (item.status === 'PENDING' || item.status === 'FAILED') && !notProvisioned && (
-                        <Button size="sm" variant="ghost" loading={busy} onClick={() => void retryOne(item)}>
-                          <IconSpinner /> Retry
-                        </Button>
-                      )
+                      <>
+                        {(item.status === 'PENDING' || item.status === 'FAILED') && !notProvisioned && (
+                          <Button size="sm" variant="ghost" loading={busy} onClick={() => void retryOne(item)}>
+                            <IconSpinner /> Retry
+                          </Button>
+                        )}
+                        {/* A failed item must be escapable: before this button
+                            existed, a refusal the server would never accept
+                            (stale payload, device-only ids, unique collision)
+                            could only be retried forever or removed by
+                            clearing the whole device store. */}
+                        {(item.status === 'FAILED' || item.status === 'CONFLICT') && (
+                          <Button size="sm" variant="ghost" className="text-red-700" onClick={() => setDiscarding(item)}>
+                            <IconTrash /> Discard
+                          </Button>
+                        )}
+                      </>
                     )}
                   </div>
                 </li>

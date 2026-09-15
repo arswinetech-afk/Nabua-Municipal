@@ -453,9 +453,11 @@ describe('REGRESSION 4 — permanent rejections become decisions, not retry loop
       },
       async upsertUser() {
         calls.upsertUser++
+        // The stale copy collides with the profile that now exists on the
+        // server: unique violation, another refusal no retry can cure.
         return {
-          ok: false as const, code: 'P0003',
-          error: 'Your role (ADMINISTRATOR) is not permitted to perform this action. Required: SYSTEM_ADMIN.',
+          ok: false as const, code: '23505',
+          error: 'duplicate key value violates unique constraint "users_email_key"',
         }
       },
       async listBarangays() { return [] },
