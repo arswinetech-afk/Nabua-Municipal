@@ -552,3 +552,72 @@ describe('REGRESSION 5 — discarding never breeds new queue entries', () => {
     expect(api.pendingChanges().filter((p) => p.operation === 'logEvent')).toHaveLength(1)
   })
 })
+
+/**
+ * REGRESSION 6 — field report 2026-09-15: "opened it on my PC with no
+ * internet, it doesn't work".
+ *
+ * A production device carries no demonstration accounts, and its offline
+ * sign-in verifier is written only by that device's own first ONLINE sign-in
+ * (with the password). Before this fix a never-introduced device answered
+ * "No office account matches that email address" offline — indistinguishable
+ * from a wrong password. The remedy must be stated: one online sign-in per
+ * device, then offline sign-in works with the same credentials.
+ */
+describe('REGRESSION 6 — offline sign-in on a device the server has met', () => {
+  function setOnline(value: boolean) {
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => value })
+  }
+
+  function makeRemote() {
+    return {
+      mode: 'supabase' as const,
+      offlineCapable: false,
+      async probeSchema() { return 'ready' as const },
+      async signIn(email: string) {
+        return {
+          ok: true as const,
+          data: {
+            id: 'u-pj', name: 'Paula Joy Quiñones', email,
+            role: 'SYSTEM_ADMIN' as const, active: true, barangay_scope: null, last_login: null,
+          },
+        }
+      },
+      async signOut() { /* nothing to do */ },
+      setSession() { /* nothing to cache */ },
+      async listBarangays() { return [] },
+      async personIndex() { return [] },
+      async listDuplicateCases() { return { total: 0, rows: [] } },
+    } as unknown as RemoteApi
+  }
+
+  it('a never-introduced device explains the one-time online sign-in instead of blaming the password', async () => {
+    setOnline(false)
+    const api = new ApiClient({ remote: makeRemote() })
+    const res = await api.signIn('paulajoy@nabua.gov.ph', 'Office@2026')
+    expect(res.ok).toBe(false)
+    expect((res as { code?: string }).code).toBe('NO_OFFLINE_CREDENTIAL')
+    expect(res.error).toMatch(/sign in once/i)
+    setOnline(true)
+  })
+
+  it('after the first online sign-in the same credentials work with no connection', async () => {
+    setOnline(true)
+    const api = new ApiClient({ remote: makeRemote() })
+    const online = await api.signIn('paulajoy@nabua.gov.ph', 'Office@2026')
+    expect(online.ok).toBe(true)
+    await api.signOut()
+
+    // The link dies mid-shift…
+    setOnline(false)
+    const offline = await api.signIn('paulajoy@nabua.gov.ph', 'Office@2026')
+    expect(offline.ok).toBe(true)
+    expect(offline.ok && offline.data.email).toBe('paulajoy@nabua.gov.ph')
+
+    // …and a wrong password still fails offline.
+    await api.signOut()
+    const wrong = await api.signIn('paulajoy@nabua.gov.ph', 'Wrong@123')
+    expect(wrong.ok).toBe(false)
+    setOnline(true)
+  })
+})

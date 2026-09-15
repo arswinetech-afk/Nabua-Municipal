@@ -296,7 +296,9 @@ export class ApiClient implements RegistryApi {
         this.emit({ type: 'online', detail: 'Signed in to the municipal server' })
         void this.refreshMirror()
         if (hadParkedWork) void this.syncNow()
-        rememberOfflineCredential(res.data, password)
+        // Awaited: the offline verifier must be on disk before this sign-in
+        // resolves, or an immediate reconnect-less re-sign-in could miss it.
+        await rememberOfflineCredential(res.data, password)
         return res
       }
       if (res.code !== 'OFFLINE') remoteFailure = res
@@ -315,6 +317,19 @@ export class ApiClient implements RegistryApi {
           ` (${remoteFailure.error}). Deploy the database functions or check the office link to work online.`
       }
       return localRes
+    }
+    // A production device carries no demonstration accounts, and its offline
+    // verifier only exists after its own first online sign-in. Saying "no
+    // office account matches" there reads as a wrong password, when the real
+    // remedy is a one-time online sign-in on this device.
+    const serverUnreachable = !navigator.onLine || remoteFailure?.code === 'OFFLINE'
+    if (localRes.code === 'NO_ACCOUNT' && serverUnreachable) {
+      return {
+        ok: false, code: 'NO_OFFLINE_CREDENTIAL',
+        error:
+          'This device has no offline sign-in for that account yet. Connect to the internet and sign in once' +
+          ' with the same e-mail and password — after that first online sign-in this device can sign in without a connection.',
+      }
     }
     return remoteFailure ?? localRes
   }
