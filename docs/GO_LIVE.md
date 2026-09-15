@@ -95,7 +95,34 @@ PSGC names exactly as published.
 
 ## 4. Create the real staff accounts
 
-For every person on the roster, in this order:
+**Who can sign in at all?** Only office staff. Residents (“members”) are
+*records* in the registry — they are searched, encoded, transferred and
+reported on, but they never sign in; there is no resident portal in NMBR.
+A staff member can sign in only when **both** halves exist and match:
+a login in Supabase Authentication (e-mail + password) **and** a profile in
+the `users` table (name, e-mail, role). The sign-in links the two by e-mail
+automatically (migration 0009). An unregistered person who tries to sign in
+is refused with *“This account is not registered in the NMBR user list. Ask
+the system administrator to add you.”* — that is the guard working.
+
+### 4a. Bootstrap the first administrator (when nobody can sign in yet)
+
+A fresh or cleaned database has no profiles, and the demonstration logins
+were never real Supabase accounts — so the very first account cannot be
+created from inside the app. Create it once, outside:
+
+1. Supabase dashboard → **Authentication → Users → Add user**: official
+   e-mail, a strong temporary password, tick *Auto confirm user*.
+2. SQL Editor → run `supabase/bootstrap_first_admin.sql` after editing the
+   two values (name, and the same e-mail in lower case). It refuses to run
+   if any active profile already exists.
+3. Sign in on the app with those credentials — the sign-in links login and
+   profile, and you are in as `SYSTEM_ADMIN`. Change the temporary password
+   afterwards in Authentication → Users.
+
+### 4b. Everyone else — created from inside the app
+
+For every remaining person on the roster, in this order:
 
 1. **NMBR profile** — signed in as an administrator *while online*, open
    *Users* → *Add account*: full name, official e-mail, role

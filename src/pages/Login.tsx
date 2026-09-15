@@ -206,9 +206,15 @@ export default function Login() {
             )}
           </Card>
 
-          <p className="mt-4 text-center text-[11px] text-ink-soft">
-            Server: <span className="mono">{SUPABASE_URL.replace('https://', '')}</span>
-          </p>
+          {/* Infrastructure detail: useful while training or debugging, but a
+              published municipal sign-in page should not advertise its
+              backend hostname. Kept for development/training bundles only;
+              staff can still see it under Settings → Municipal server. */}
+          {SHOW_DEMO_ACCOUNTS && (
+            <p className="mt-4 text-center text-[11px] text-ink-soft">
+              Server: <span className="mono">{SUPABASE_URL.replace('https://', '')}</span>
+            </p>
+          )}
         </div>
       </div>
     </div>
