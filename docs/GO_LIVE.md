@@ -265,6 +265,19 @@ profiles on the server (§3).
 
 ## 8. Keeping the live system honest
 
+* **Sudden power loss is safe for encoded work.** Every save — member
+  records, edits, transfers, duplicate decisions, audit entries and queued
+  changes — is written synchronously to the device's own storage
+  (`localStorage`) at the moment of the save, not on a timer and not on
+  close. After a reboot the records are still there; only text that was
+  still sitting unsaved in an open form is lost. If the session window has
+  lapsed, sign in again (offline verifier) and continue; queued changes
+  upload at the next connection.
+  Three caveats: never encode in private/incognito windows (storage dies
+  with the window); make sure the browser is not configured to “clear
+  cookies and site data when closed”; and use the same browser profile the
+  registry was introduced on — a different profile is a different device as
+  far as the on-device copy is concerned.
 * Rotate the administrator password after the first week of live use.
 * Review *Audit Logs* weekly; every add/edit/transfer/merge/import is there
   with name, role and device info.
