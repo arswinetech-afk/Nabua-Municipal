@@ -148,6 +148,39 @@ A sign-in whose e-mail has no profile is refused with *“This account is not
 registered in the NMBR user list”* — that is the guard working, not a bug:
 create the profile first (step 1).
 
+### 4c. Retiring a staff profile: deactivate, never delete
+
+A profile that has ever done anything cannot be deleted — not from the
+Supabase Table Editor, not from SQL — and that is the system protecting the
+municipality:
+
+* every audit entry keeps `user_id` → `users(id)` with `ON DELETE SET NULL`,
+  and the audit log is immutable (`NMBR_AUDIT_IMMUTABLE`, P0006), so the
+  foreign-key update that a delete would need is refused;
+* `persons.created_by/updated_by`, `duplicate_cases`, `member_barangay_history`
+  and `import_batches` point at profiles too — a delete would silently strip
+  attribution from real resident records.
+
+Supported retirement (in-app, fully audited): another `SYSTEM_ADMIN` signs in
+and presses **Deactivate** on the profile (you cannot deactivate your own row
+while signed in as it). The profile remains in the ledger, can no longer sign
+in or be linked, and **Reactivate** brings it back if the person returns.
+
+Exceptional physical deletion — only if the municipality accepts that audit
+entries and records of that period lose their `user_id` pointer (names and
+roles stay written inside each entry). The immutability trigger must be
+suspended for the instant the foreign keys null their pointers:
+
+```sql
+alter table audit_logs disable trigger trg_audit_immutable;
+delete from users where email = 'the.person@nabua.gov.ph';
+alter table audit_logs enable trigger trg_audit_immutable;
+```
+
+Run it only while at least one other active `SYSTEM_ADMIN` remains, and write
+the reason into the audit log first (`fn_log_event`) so the gap itself is
+accounted for.
+
 ## 5. Reset every office device, then sign in online once
 
 Devices that ever ran a demonstration build still carry the fictional

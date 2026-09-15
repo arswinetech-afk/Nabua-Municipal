@@ -178,6 +178,19 @@ export default function Users() {
       </div>
 
       <Card className="card-pad mt-4">
+        <h2 className="section-title"><IconShieldCheck /> Retiring an account: deactivate, never delete</h2>
+        <p className="mt-1 text-[11px] text-ink-soft">
+          Every audit entry, member record and duplicate decision keeps a pointer to the profile that
+          created it, and the audit log is immutable by law-grade design (RA 10173). Deleting a profile
+          would force those pointers to null — a rewrite of history — so the database refuses it
+          (NMBR_AUDIT_IMMUTABLE). Deactivation is the supported retirement: the profile stays in the
+          ledger, can no longer sign in or be linked, and can be reactivated if the person returns.
+          You cannot deactivate your own row while signed in as it — ask the other system administrator.
+          The rare physical deletion (with its consequences) is documented in docs/GO_LIVE.md §4c.
+        </p>
+      </Card>
+
+      <Card className="card-pad mt-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="section-title"><IconShieldCheck /> Role permissions</h2>
           <p className="text-[11px] text-ink-soft">Enforced in PostgreSQL as well as in this table.</p>
