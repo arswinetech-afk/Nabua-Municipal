@@ -621,7 +621,14 @@ export class ApiClient implements RegistryApi {
     if (this.usingServer && this.remote) {
       try {
         await this.remote.logEvent(action, entityType, entityId, label, newValues, reason)
-      } catch {
+      } catch (err) {
+        // An audit event the server can never accept (bad reference, wrong
+        // role…) must stay a local entry: queueing it would park a conflict
+        // whose own discard writes another audit event — the clutter loop
+        // reported from the field on 2026-09-15. Network and provisioning
+        // failures still queue, because those succeed once the link or the
+        // database returns.
+        if (isPermanentRejection(err)) return
         this.queue('logEvent', { action, entityType, entityId, label, newValues, reason }, `${action} ${label ?? ''}`)
       }
     }

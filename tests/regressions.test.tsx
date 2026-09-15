@@ -500,3 +500,55 @@ describe('REGRESSION 4 — permanent rejections become decisions, not retry loop
     expect(calls.upsertUser).toBe(1)
   })
 })
+
+/**
+ * REGRESSION 5 — field report 2026-09-15, 13:43 screenshot.
+ *
+ * Discarding a queued change wrote an audit event carrying the outbox id
+ * ("ob…") as entity_id, a uuid column — so the audit event was itself
+ * refused, became a new queued conflict, and discarding THAT wrote another
+ * one (the accumulating SYNC_ITEM_DISCARDED prefixes). A refused audit event
+ * must stay local; only link/provisioning failures may queue it.
+ */
+describe('REGRESSION 5 — discarding never breeds new queue entries', () => {
+  function makeRemote(logEvent: () => Promise<void>) {
+    return {
+      mode: 'supabase' as const,
+      offlineCapable: false,
+      async probeSchema() { return 'ready' as const },
+      async signIn() {
+        return {
+          ok: true as const,
+          data: {
+            id: 'u-pj', name: 'Paula Joy Quiñones', email: 'paulajoy@nabua.gov.ph',
+            role: 'SYSTEM_ADMIN' as const, active: true, barangay_scope: null, last_login: null,
+          },
+        }
+      },
+      setSession() { /* nothing to cache */ },
+      logEvent,
+      async listBarangays() { return [] },
+      async personIndex() { return [] },
+      async listDuplicateCases() { return { total: 0, rows: [] } },
+    } as unknown as RemoteApi
+  }
+
+  it('a permanently refused audit event stays local instead of queueing', async () => {
+    const remote = makeRemote(async () => {
+      throw Object.assign(new Error('invalid input syntax for type uuid: "ob123"'), { code: '22P02' })
+    })
+    const api = new ApiClient({ remote })
+    await api.signIn('paulajoy@nabua.gov.ph', 'Office@2026')
+    await api.logEvent('SYNC_ITEM_DISCARDED', 'OUTBOX', null, 'Save user stale',
+      { outbox_id: 'ob123', operation: 'upsertUser' }, 'cleaning the queue')
+    expect(api.pendingChanges()).toHaveLength(0)
+  })
+
+  it('a network-refused audit event still queues (it succeeds once the link returns)', async () => {
+    const remote = makeRemote(async () => { throw new TypeError('Failed to fetch') })
+    const api = new ApiClient({ remote })
+    await api.signIn('paulajoy@nabua.gov.ph', 'Office@2026')
+    await api.logEvent('SYNC_ITEM_DISCARDED', 'OUTBOX', null, 'Save user stale', null, 'cleaning the queue')
+    expect(api.pendingChanges().filter((p) => p.operation === 'logEvent')).toHaveLength(1)
+  })
+})

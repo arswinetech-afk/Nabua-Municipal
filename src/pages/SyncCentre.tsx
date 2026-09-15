@@ -336,7 +336,13 @@ export default function SyncCentre() {
         onConfirm={async (reason) => {
           if (discarding) {
             await api.discardPending(discarding.id)
-            await api.logEvent('SYNC_ITEM_DISCARDED', 'SYSTEM_SETTINGS', discarding.id, discarding.summary, null, reason)
+            // The audit event must not carry the outbox id as entity_id:
+            // outbox ids are "ob…" strings and the column is uuid — passing
+            // one made the audit event itself un-replayable, so every
+            // discard bred another queued conflict (field report 13:43).
+            // The outbox id travels inside new_values instead.
+            await api.logEvent('SYNC_ITEM_DISCARDED', 'OUTBOX', null, discarding.summary,
+              { outbox_id: discarding.id, operation: discarding.operation, status: discarding.status }, reason)
             toast.push({ tone: 'info', title: 'Queued change discarded', message: 'The reason was written to the audit log.' })
           }
           setDiscarding(null)
