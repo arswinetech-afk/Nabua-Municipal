@@ -4,7 +4,7 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DataTable, type Column } from '../components/DataTable'
 import type { Barangay, PersonIndexRow } from '../lib/types'
-import { formatDate, relativeTime, downloadXlsx } from '../lib/utils'
+import { formatDate, relativeTime, downloadXlsx, downloadPdf } from '../lib/utils'
 import { fullName } from '../lib/normalize'
 import {
   Badge, Button, Card, Field, IconAlert, IconChart, IconDownload, IconPrint, IconRefresh, KpiCard,
@@ -78,6 +78,7 @@ export default function Reports() {
           <>
             <Button variant="secondary" size="sm" onClick={() => void load()} loading={loading}><IconRefresh /> Re-run</Button>
             <Button variant="secondary" size="sm" onClick={() => exportRows(kind, data)}><IconDownload /> Export Excel</Button>
+            <Button variant="secondary" size="sm" onClick={() => exportRows(kind, data, 'pdf')}><IconDownload /> PDF</Button>
             <Button variant="primary" size="sm" onClick={() => window.print()}><IconPrint /> Print / PDF</Button>
           </>
         }
@@ -306,18 +307,25 @@ function summarise(kind: Kind, data: ReportRow[]) {
   return { total: 0, newInPeriod: 0, duplicates: 0 }
 }
 
-function exportRows(kind: Kind, data: ReportRow[]) {
+function exportRows(kind: Kind, data: ReportRow[], fmt: 'xlsx' | 'pdf' = 'xlsx') {
   if (data.length === 0) return
   const header = Object.keys(data[0])
+  const grid = data.map((row) => header.map((h) => {
+    const v = row[h]
+    return typeof v === 'object' && v !== null ? JSON.stringify(v) : (v as string | number | null | undefined)
+  }))
+  const base = `nmbr-${kind}-${new Date().toISOString().slice(0, 10)}`
   void (async () => {
-    await downloadXlsx(
-      header,
-      data.map((row) => header.map((h) => {
-        const v = row[h]
-        return typeof v === 'object' && v !== null ? JSON.stringify(v) : (v as string | number | null | undefined)
-      })),
-      `nmbr-${kind}-${new Date().toISOString().slice(0, 10)}.xlsx`,
-      kind.replace(/_/g, ' ').slice(0, 31),
-    )
+    if (fmt === 'xlsx') {
+      await downloadXlsx(header, grid, `${base}.xlsx`, kind.replace(/_/g, ' ').slice(0, 31))
+    } else {
+      await downloadPdf({
+        title: `${kind.replace(/_/g, ' ')} report`,
+        subtitle: 'Municipality of Nabua, Province of Camarines Sur',
+        headers: header, rows: grid, filename: `${base}.pdf`,
+        meta: [`Generated: ${new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`,
+          `Records in this extract: ${grid.length}`],
+      })
+    }
   })()
 }

@@ -197,6 +197,7 @@ export default function Barangays() {
           onSearch={setQuery}
           searchPlaceholder="Search barangay name…"
           exportName="barangay-directory"
+          exportTitle="Barangay Directory of the Municipality of Nabua"
           total={filtered.length}
           limit={50}
           mobilePrimary={['name', 'total_members']}

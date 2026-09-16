@@ -94,6 +94,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return result
   }, [api, refreshPending, toast])
 
+  // Pre-warm the export modules (xlsx / jsPDF) while the device is idle so
+  // the first Export tap never stalls on a chunk fetch over a weak link —
+  // the field report where "Export is no longer clickable" was partly a
+  // silent, feedback-less stall of exactly this kind.
+  useEffect(() => {
+    const warm = () => {
+      void import('xlsx')
+      void import('jspdf')
+      void import('jspdf-autotable')
+    }
+    const w = window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }
+    const handle = w.requestIdleCallback ? w.requestIdleCallback(warm, { timeout: 8000 }) : setTimeout(warm, 5000)
+    return () => {
+      if (w.requestIdleCallback) window.cancelIdleCallback?.(handle as number)
+      else clearTimeout(handle as number)
+    }
+  }, [])
+
   // boot: restore session, load settings
   useEffect(() => {
     let mounted = true

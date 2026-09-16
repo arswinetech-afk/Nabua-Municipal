@@ -75,7 +75,7 @@ export function personColumns({
 
 export function MemberTable({
   rows, loading, total, limit, offset, onPage, onRowClick, emptyTitle, emptyMessage, emptyAction,
-  search, onSearch, searchPlaceholder, filters, exportName, maskContactNumbers, mobilePrimary,
+  search, onSearch, searchPlaceholder, filters, exportName, exportTitle, maskContactNumbers, mobilePrimary,
 }: {
   rows: Person[]
   loading?: boolean
@@ -92,6 +92,7 @@ export function MemberTable({
   searchPlaceholder?: string
   filters?: React.ReactNode
   exportName?: string
+  exportTitle?: string
   maskContactNumbers?: boolean
   mobilePrimary?: string[]
 }) {
@@ -114,6 +115,7 @@ export function MemberTable({
       searchPlaceholder={searchPlaceholder}
       filters={filters}
       exportName={exportName}
+      exportTitle={exportTitle}
       mobilePrimary={mobilePrimary ?? ['name', 'barangay']}
     />
   )

@@ -681,3 +681,37 @@ describe('REGRESSION 8 — exports are real workbooks, round-trip UTF-8 verbatim
     expect(json[1]).toMatchObject({ Member: 'Sarah Mae Neñez', Barangay: 'ANGUSTIA' })
   })
 })
+
+/**
+ * REGRESSION 9 — field request 2026-09-16: extracts must also download as a
+ * clean, professional government PDF — letterhead, navy table head, page
+ * furniture stamped after pagination so nothing overlaps the table.
+ */
+describe('REGRESSION 9 — PDF extracts carry the letterhead and paginate cleanly', () => {
+  it('builds a %PDF with letterhead, running head and page numbers', async () => {
+    const { buildPdfBytes } = await import('../src/lib/utils')
+    const rows = Array.from({ length: 90 }, (_, i) => [
+      `NMBR-${String(i + 1).padStart(6, '0')}`, `Member ${i + 1}`, 'SAN JUAN',
+    ])
+    const bytes = await buildPdfBytes({
+      title: 'Municipal Member Registry',
+      subtitle: 'Municipality of Nabua, Province of Camarines Sur',
+      headers: ['Reference No.', 'Name', 'Barangay'],
+      rows,
+      filename: 'x.pdf',
+      meta: ['Generated: test run', 'Records in this extract: 90'],
+      compress: false,
+    })
+    expect(String.fromCharCode(...bytes.slice(0, 5))).toBe('%PDF-')
+    const text = Buffer.from(bytes).toString('latin1')
+    expect(text).toContain('REPUBLIC OF THE PHILIPPINES')
+    expect(text).toContain('PROVINCE OF CAMARINES SUR')
+    expect(text).toContain('MUNICIPALITY OF NABUA')
+    expect(text).toContain('MUNICIPAL MEMBER REGISTRY')
+    expect(text).toContain('Records in this extract: 90')
+    // multi-page extract: footers know the real total, running head on page 2
+    expect(text).toMatch(/Page 1 of [2-9]/)
+    expect(text).toContain('continued')
+    expect(text).toContain('Official system-generated document')
+  })
+})

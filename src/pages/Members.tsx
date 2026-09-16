@@ -214,6 +214,7 @@ export default function Members() {
           onPage={setOffset}
           onRowClick={(p) => navigate(`/members/${p.id}`)}
           exportName="member-registry"
+          exportTitle="Municipal Member Registry"
           maskContactNumbers={settings.mask_contact_in_lists}
           emptyTitle="No members match these filters"
           emptyMessage="Try removing a filter, searching a different spelling, or add the member as a new record."

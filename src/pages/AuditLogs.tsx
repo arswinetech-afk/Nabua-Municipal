@@ -3,10 +3,8 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DataTable, type Column } from '../components/DataTable'
 import type { AuditLogRow, ManagedUser } from '../lib/types'
-import { formatDateTime, relativeTime, downloadXlsx } from '../lib/utils'
-import {
-  Badge, Button, Card, Field, IconAlert, IconDownload, IconEye, IconRefresh, IconScroll, Modal,
-} from '../components/ui'
+import { formatDateTime, relativeTime, downloadXlsx, downloadPdf } from '../lib/utils'
+import { Badge, Button, Card, Field, IconAlert, IconDownload, IconEye, IconRefresh, IconScroll, Modal, useToast } from '../components/ui'
 
 const ACTIONS = [
   'SIGNIN', 'LOGOUT', 'CREATED', 'UPDATED', 'TRANSFERRED', 'STATUS_CHANGED', 'ARCHIVED', 'MERGED',
@@ -17,6 +15,7 @@ const ACTIONS = [
 const ENTITIES = ['PERSONS', 'PERSON', 'DUPLICATE_CASES', 'IMPORT_BATCHES', 'USERS', 'BARANGAYS', 'SYSTEM_SETTINGS']
 
 export default function AuditLogs() {
+  const toast = useToast()
   const { api, user } = useApp()
   const [rows, setRows] = useState<AuditLogRow[]>([])
   const [total, setTotal] = useState(0)
@@ -59,6 +58,27 @@ export default function AuditLogs() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const exportPdf = () => {
+    void (async () => {
+      try {
+        await downloadPdf({
+          title: 'Audit Log',
+          subtitle: 'Municipal Barangay Registry — Municipality of Nabua, Province of Camarines Sur',
+          headers: ['Timestamp', 'User', 'Action', 'Entity', 'Record', 'Reason', 'Previous values', 'New values'],
+          rows: rows.map((r) => [
+            r.timestamp, r.user_name ?? 'System', r.action, r.entity_type, r.entity_label ?? r.entity_id ?? '',
+            r.reason ?? '', JSON.stringify(r.old_values ?? ''), JSON.stringify(r.new_values ?? ''),
+          ]),
+          filename: `nmbr-audit-log-${new Date().toISOString().slice(0, 10)}.pdf`,
+          meta: [`Generated: ${new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`,
+            `Entries in this extract: ${rows.length}`],
+        })
+      } catch (err) {
+        toast.push({ tone: 'error', title: 'Export failed', message: err instanceof Error ? err.message : String(err) })
+      }
+    })()
+  }
 
   const exportCsv = () => {
     void (async () => {
@@ -117,6 +137,7 @@ export default function AuditLogs() {
           <>
             <Button variant="secondary" size="sm" onClick={() => void load()} loading={loading}><IconRefresh /> Refresh</Button>
             <Button variant="secondary" size="sm" onClick={exportCsv}><IconDownload /> Export Excel</Button>
+            <Button variant="secondary" size="sm" onClick={exportPdf}><IconDownload /> PDF</Button>
           </>
         }
       />

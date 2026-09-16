@@ -4,7 +4,7 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DataTable, type Column } from '../components/DataTable'
 import type { Barangay, DataQualityRow, Person } from '../lib/types'
-import { cn, formatDate, downloadXlsx } from '../lib/utils'
+import { cn, formatDate, downloadXlsx, downloadPdf } from '../lib/utils'
 import { fullName } from '../lib/normalize'
 import {
   Badge, Button, Card, IconAlert, IconDownload, IconEye, IconPlus, IconRefresh, IconSearch,
@@ -70,22 +70,33 @@ export default function DataQuality() {
     }
   }
 
-  const exportDetail = () => {
+  const exportDetail = (fmt: 'xlsx' | 'pdf' = 'xlsx') => {
     if (!detail) return
     void (async () => {
       if (groups.length) {
-        await downloadXlsx(
+        await (fmt === 'xlsx' ? downloadXlsx(
           ['Group', 'Reference No.', 'Name', 'Birthdate', 'Barangay', 'Contact'],
           groups.flatMap((g) => g.members.map((p) => [
             g.key, p.reference_no, fullName(p),
             p.date_of_birth ?? '', p.barangay_name ?? '', p.contact_number ?? '',
           ])),
           `nmbr-data-quality-${detail.id}.xlsx`, 'Data quality',
-        )
-        toast.push({ tone: 'info', title: 'Export created', message: 'The list was written to an Excel file.' })
+        ) : downloadPdf({
+          title: `Data quality — ${detail.id.replace(/_/g, ' ')}`,
+          subtitle: 'Municipality of Nabua, Province of Camarines Sur',
+          headers: ['Group', 'Reference No.', 'Name', 'Birthdate', 'Barangay', 'Contact'],
+          rows: groups.flatMap((g) => g.members.map((p) => [
+            g.key, p.reference_no, fullName(p),
+            p.date_of_birth ?? '', p.barangay_name ?? '', p.contact_number ?? '',
+          ])),
+          filename: `nmbr-data-quality-${detail.id}.pdf`,
+          meta: [`Generated: ${new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`,
+            `Records in this extract: ${groups.reduce((a, g) => a + g.members.length, 0)}`],
+        }))
+        toast.push({ tone: 'info', title: 'Export created', message: fmt === 'pdf' ? 'The list was written to a PDF file.' : 'The list was written to an Excel file.' })
         return
       }
-      await downloadXlsx(
+      await (fmt === 'xlsx' ? downloadXlsx(
         ['Reference No.', 'Name', 'Birthdate', 'Sex', 'Barangay', 'Purok', 'Address', 'Contact', 'Status'],
         records.map((p) => [
           p.reference_no, fullName(p), p.date_of_birth ?? '',
@@ -93,8 +104,20 @@ export default function DataQuality() {
           p.contact_number ?? '', p.status,
         ]),
         `nmbr-data-quality-${detail.id}.xlsx`, 'Data quality',
-      )
-      toast.push({ tone: 'info', title: 'Export created', message: 'The list was written to an Excel file.' })
+      ) : downloadPdf({
+        title: `Data quality — ${detail.id.replace(/_/g, ' ')}`,
+        subtitle: 'Municipality of Nabua, Province of Camarines Sur',
+        headers: ['Reference No.', 'Name', 'Birthdate', 'Sex', 'Barangay', 'Purok', 'Address', 'Contact', 'Status'],
+        rows: records.map((p) => [
+          p.reference_no, fullName(p), p.date_of_birth ?? '',
+          p.sex ?? '', p.barangay_name ?? '', p.purok ?? '', p.address ?? '',
+          p.contact_number ?? '', p.status,
+        ]),
+        filename: `nmbr-data-quality-${detail.id}.pdf`,
+        meta: [`Generated: ${new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })}`,
+          `Records in this extract: ${records.length}`],
+      }))
+      toast.push({ tone: 'info', title: 'Export created', message: fmt === 'pdf' ? 'The list was written to a PDF file.' : 'The list was written to an Excel file.' })
     })()
   }
 
@@ -204,7 +227,8 @@ export default function DataQuality() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setDetail(null)}>Close</Button>
-            <Button variant="secondary" onClick={exportDetail}><IconDownload /> Export Excel</Button>
+            <Button variant="secondary" onClick={() => exportDetail()}><IconDownload /> Export Excel</Button>
+            <Button variant="secondary" onClick={() => exportDetail('pdf')}><IconDownload /> PDF</Button>
             {detail?.id === 'possible_duplicates' && (
               <Button variant="primary" onClick={() => navigate('/duplicates')}>Open Duplicate Center</Button>
             )}
