@@ -266,6 +266,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
 
+/** Provider-optional variant for shared components (DataTable) that may be
+ *  rendered in isolation, e.g. component tests. */
+export function useAppOptional(): AppState | null {
+  return useContext(AppContext)
+}
+
 export function useApp(): AppState {
   const ctx = useContext(AppContext)
   if (!ctx) throw new Error('useApp must be used inside AppProvider')

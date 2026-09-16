@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { cn, downloadPdf, downloadXlsx } from '../lib/utils'
-import { useApp } from '../state/AppProvider'
+import { useAppOptional } from '../state/AppProvider'
 import { Button, EmptyState, IconColumns, IconDownload, IconFilter, IconSearch, Pagination, TableSkeleton, useToast } from './ui'
 
 export type Column<T> = {
@@ -51,7 +51,7 @@ export function DataTable<T>({
   onRowClick, total, limit = 25, offset = 0, onPage, search, onSearch, searchPlaceholder,
   filters, exportName, exportTitle, mobilePrimary, dense, stickyHeader = true,
 }: DataTableProps<T>) {
-  const { user } = useApp()
+  const user = useAppOptional()?.user ?? null
   const toast = useToast()
   const [exportMenu, setExportMenu] = useState(false)
   const [exportBusy, setExportBusy] = useState<null | 'xlsx' | 'pdf'>(null)
