@@ -153,9 +153,25 @@ export type XlsxCell = string | number | null | undefined
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
+/**
+ * The xlsx package is dual-mode: Node resolves its CommonJS build (which has
+ * a default export) while browser bundles resolve its ESM build (named
+ * exports only, NO default) — field report 2026-09-16 09:15, "Cannot read
+ * properties of undefined (reading 'utils')". Accept either shape and fail
+ * loudly if neither carries the library.
+ */
+export function pickXlsx(mod: unknown): typeof import('xlsx') {
+  const m = mod as { default?: { utils?: unknown } | undefined; utils?: unknown }
+  const lib = (m?.default?.utils ? m.default : m) as typeof import('xlsx') | undefined
+  if (!lib?.utils) {
+    throw new Error('The spreadsheet module did not load. Re-open the app (it refreshes in the background) and try again.')
+  }
+  return lib
+}
+
 /** Build a one-sheet .xlsx workbook in memory (ZIP container, UTF-8 XML). */
 export async function buildXlsxBytes(sheetName: string, headers: string[], rows: XlsxCell[][]): Promise<Uint8Array> {
-  const { default: XLSX } = await import('xlsx')
+  const XLSX = pickXlsx(await import('xlsx'))
   const clean = (v: XlsxCell) => (v === null || v === undefined ? '' : v)
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((r) => r.map(clean))])
   const wb = XLSX.utils.book_new()

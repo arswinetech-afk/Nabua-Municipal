@@ -16,7 +16,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import type { ImportRow, ImportSummary, PersonInput } from '../lib/api'
 import type { Barangay } from '../lib/types'
 import { normalizeDate, normalizeContact, normalizeName } from '../lib/normalize'
-import { cn, relativeTime, downloadXlsx } from '../lib/utils'
+import { cn, relativeTime, downloadXlsx, pickXlsx } from '../lib/utils'
 import { fullName } from '../lib/normalize'
 import {
   Badge, Button, Card, Field, IconAlert, IconArrowLeft, IconArrowRight, IconCheck, IconDownload,
@@ -102,7 +102,7 @@ export default function Imports() {
     setBusy(true)
     setFile(f)
     try {
-      const { default: XLSX } = await import('xlsx')
+      const XLSX = pickXlsx(await import('xlsx'))
       const data = await f.arrayBuffer()
       const workbook = XLSX.read(data, { type: 'array', cellDates: true })
       const sheet = workbook.Sheets[workbook.SheetNames[0]]

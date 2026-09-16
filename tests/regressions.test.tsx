@@ -715,3 +715,21 @@ describe('REGRESSION 9 — PDF extracts carry the letterhead and paginate cleanl
     expect(text).toContain('Official system-generated document')
   })
 })
+
+/**
+ * REGRESSION 10 — field report 2026-09-16, 09:15: Excel export failed with
+ * "Cannot read properties of undefined (reading 'utils')". The xlsx package
+ * is dual-mode: Node loads its CJS build (default export present), browser
+ * bundles load its ESM build (named exports only). The loader must accept
+ * both shapes and refuse silently-broken ones.
+ */
+describe('REGRESSION 10 — the spreadsheet module loader accepts both module shapes', () => {
+  it('resolves named-export (ESM) and default-export (CJS) shapes alike', async () => {
+    const { pickXlsx } = await import('../src/lib/utils')
+    const lib = { utils: { aoa_to_sheet: () => ({}) } }
+    expect(pickXlsx(lib)).toBe(lib)                       // browser ESM shape
+    expect(pickXlsx({ default: lib })).toBe(lib)          // node CJS shape
+    expect(() => pickXlsx({})).toThrow(/spreadsheet module did not load/)
+    expect(() => pickXlsx(undefined)).toThrow(/spreadsheet module did not load/)
+  })
+})
