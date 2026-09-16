@@ -135,7 +135,7 @@ export default function Members() {
         <KpiCard label="Filtered results" value={total.toLocaleString()} sub={activeFilters ? `${activeFilters} filter(s) applied` : 'No filters applied'} />
       </div>
 
-      <Card className="card-pad mt-4">
+      <Card className="card-pad mt-4 no-print">
         <div className="flex flex-wrap items-end gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-md">
             <IconSearch className="pointer-events-none absolute top-2.5 left-2.5 h-4 w-4 text-slate-400" />

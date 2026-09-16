@@ -265,7 +265,7 @@ export function PageHeader({
         <h1 className="text-lg font-bold tracking-tight text-ink sm:text-xl">{title}</h1>
         {subtitle && <p className="mt-0.5 max-w-3xl text-xs text-ink-soft">{subtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="no-print flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
 }

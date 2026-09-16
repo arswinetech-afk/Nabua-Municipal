@@ -161,7 +161,7 @@ export default function DuplicateCenter() {
         }
       />
 
-      <Card className="card-pad">
+      <Card className="card-pad no-print">
         <div className="flex flex-wrap items-end gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-sm">
             <input

@@ -45,10 +45,15 @@
     outline-offset: 2px;
   }
   @media print {
-    .no-print { display: none !important; }
+    /* Interactive chrome never belongs in a printed extract: the field
+       report (2026-09-16, 11:52) showed Re-run / Export / PDF / Print
+       buttons captured inside the Save-as-PDF output. */
+    .no-print, button, select, input, textarea, [role='menu'] { display: none !important; }
     body { background: #fff; }
     .print-full { box-shadow: none !important; border: none !important; }
+    a { color: inherit; text-decoration: none; }
   }
+  @page { margin: 12mm; }
 }
 
 @layer components {

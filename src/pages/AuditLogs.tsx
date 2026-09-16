@@ -149,7 +149,7 @@ export default function AuditLogs() {
         </div>
       )}
 
-      <Card className="card-pad mb-4">
+      <Card className="card-pad mb-4 no-print">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <Field label="Search" className="lg:col-span-2">
             <input className="input" value={query} onChange={(e) => setQuery(e.target.value)}
