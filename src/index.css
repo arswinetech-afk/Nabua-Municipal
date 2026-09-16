@@ -49,6 +49,18 @@
        report (2026-09-16, 11:52) showed Re-run / Export / PDF / Print
        buttons captured inside the Save-as-PDF output. */
     .no-print, button, select, input, textarea, [role='menu'] { display: none !important; }
+    /* …but sortable column HEADERS are buttons on screen (that is how you
+       click to sort). Field report 12:09: hiding all buttons stripped every
+       column label from the paper. On paper they stay, as plain labels. */
+    th button {
+      display: inline-flex !important;
+      border: none !important;
+      padding: 0 !important;
+      background: transparent !important;
+      color: inherit !important;
+      font: inherit !important;
+    }
+    th button svg { display: none !important; }
     body { background: #fff; }
     .print-full { box-shadow: none !important; border: none !important; }
     a { color: inherit; text-decoration: none; }
