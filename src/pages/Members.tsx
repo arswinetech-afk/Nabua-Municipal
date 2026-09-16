@@ -20,6 +20,12 @@ const ATTENTION: Array<{ key: AttentionKey; label: string }> = [
   { key: 'incomplete_address', label: 'Incomplete address' },
 ]
 
+/** Local-calendar date (YYYY-MM-DD) of today, for the "since midnight" filter. */
+function localToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export default function Members() {
   const { api, user, settings, online } = useApp()
   const navigate = useNavigate()
@@ -35,6 +41,9 @@ export default function Members() {
   const [status, setStatus] = useState(params.get('status') ?? 'ALL')
   const [attention, setAttention] = useState<AttentionKey>((params.get('attention') as AttentionKey) ?? '')
   const [duplicatesOnly, setDuplicatesOnly] = useState(params.get('duplicates') === '1')
+  // "Encoded since midnight" — set by the New-today cards on the directory
+  // and dashboard so the list matches the number on the card.
+  const [sinceToday, setSinceToday] = useState(params.get('since') === 'today')
   const [sort, setSort] = useState<'name' | 'updated' | 'dob'>('name')
   const [dir, setDir] = useState<'asc' | 'desc'>('asc')
   const [limit, setLimit] = useState(25)
@@ -61,6 +70,7 @@ export default function Members() {
         status: status === 'ALL' ? null : status,
         attention: attention || null,
         duplicates_only: duplicatesOnly,
+        created_since: sinceToday ? localToday() : null,
         sort, dir, limit, offset,
       })
       setRows(res.rows)
@@ -75,7 +85,7 @@ export default function Members() {
     } finally {
       setLoading(false)
     }
-  }, [api, debounced, barangayId, status, attention, duplicatesOnly, sort, dir, limit, offset])
+  }, [api, debounced, barangayId, status, attention, duplicatesOnly, sinceToday, sort, dir, limit, offset])
 
   useEffect(() => {
     void load()
@@ -89,11 +99,12 @@ export default function Members() {
     if (status !== 'ALL') next.set('status', status)
     if (attention) next.set('attention', attention)
     if (duplicatesOnly) next.set('duplicates', '1')
+    if (sinceToday) next.set('since', 'today')
     setParams(next, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced, barangayId, status, attention, duplicatesOnly])
+  }, [debounced, barangayId, status, attention, duplicatesOnly, sinceToday])
 
-  const activeFilters = [debounced, barangayId, status !== 'ALL' ? status : '', attention, duplicatesOnly ? 'duplicates' : '']
+  const activeFilters = [debounced, barangayId, status !== 'ALL' ? status : '', attention, duplicatesOnly ? 'duplicates' : '', sinceToday ? 'since' : '']
     .filter(Boolean).length
 
   return (
@@ -167,11 +178,15 @@ export default function Members() {
             <input type="checkbox" checked={duplicatesOnly} onChange={(e) => { setDuplicatesOnly(e.target.checked); setOffset(0) }} />
             Only records with open duplicate cases
           </label>
+          <label className="flex items-center gap-2 text-xs font-medium text-ink">
+            <input type="checkbox" checked={sinceToday} onChange={(e) => { setSinceToday(e.target.checked); setOffset(0) }} />
+            Encoded since midnight
+          </label>
           {activeFilters > 0 && (
             <>
               <Badge tone="info">{activeFilters} filter(s)</Badge>
               <Button size="sm" variant="ghost"
-                onClick={() => { setQuery(''); setBarangayId(''); setStatus('ALL'); setAttention(''); setDuplicatesOnly(false); setOffset(0) }}>
+                onClick={() => { setQuery(''); setBarangayId(''); setStatus('ALL'); setAttention(''); setDuplicatesOnly(false); setSinceToday(false); setOffset(0) }}>
                 Clear all
               </Button>
             </>

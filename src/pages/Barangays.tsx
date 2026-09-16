@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
@@ -23,6 +23,7 @@ export default function Barangays() {
   const [form, setForm] = useState({ name: '', district: '', active: true })
   const [busy, setBusy] = useState(false)
   const [deactivate, setDeactivate] = useState<Barangay | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const canManage = user && ['ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
 
@@ -173,14 +174,19 @@ export default function Barangays() {
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Barangays" value={rows.filter((b) => b.active).length} sub={`${rows.length} total on file`} icon={<IconMap />} />
-        <KpiCard label="Registered members" value={totals.members.toLocaleString()} sub="Across all barangays" icon={<IconUsers />} />
-        <KpiCard label="New today" value={totals.today} sub="Encoded since midnight" icon={<IconPlus />} tone={totals.today ? 'success' : 'neutral'} />
+        {/* One-tap drill-downs: the cards are the shortcuts the office asked
+            for — no menu hunting between directory, registry and reviews. */}
+        <KpiCard label="Barangays" value={rows.filter((b) => b.active).length} sub={`${rows.length} total on file`} icon={<IconMap />}
+          onClick={() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
+        <KpiCard label="Registered members" value={totals.members.toLocaleString()} sub="Across all barangays" icon={<IconUsers />}
+          onClick={() => navigate('/members')} />
+        <KpiCard label="New today" value={totals.today} sub="Encoded since midnight" icon={<IconPlus />} tone={totals.today ? 'success' : 'neutral'}
+          onClick={() => navigate('/members?since=today')} />
         <KpiCard label="Possible duplicates" value={totals.duplicates} sub="Pairs awaiting a decision" icon={<IconCopy />}
           tone={totals.duplicates ? 'danger' : 'success'} onClick={() => navigate('/duplicates')} />
       </div>
 
-      <div className="mt-4">
+      <div className="mt-4" ref={listRef}>
         <DataTable
           rows={filtered}
           columns={columns}

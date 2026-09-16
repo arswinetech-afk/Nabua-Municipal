@@ -44,6 +44,30 @@ select prosrc like '%lower(email) = lower(email)%' as still_broken
 -- must return: f
 ```
 
+## 1b. Since-midnight drill-down (migration 0010, recommended)
+
+The *New today* cards on the dashboard and the Barangay Directory open the
+member list pre-filtered to records encoded since local midnight, so the list
+matches the number on the card. That filter lives in the database
+(`fn_search_persons` gained a `p_created_since` argument).
+
+Do **one** of:
+
+* Re-run the whole current `setup/NMBR-supabase-setup.sql` (it now contains
+  0010 and remains idempotent), **or**
+* Paste only `supabase/migrations/0010_search_created_since.sql` into the
+  Supabase SQL Editor and run it. It drops the old 12-argument
+  `fn_search_persons` by exact signature and recreates it with the new
+  argument; safe to re-run.
+
+Until 0010 is applied the cards still open the member list, simply without
+the since-midnight restriction — no error is shown.
+
+```sql
+select pronargs from pg_proc where proname = 'fn_search_persons';
+-- must return: 13
+```
+
 ## 2. Build the production bundle without demonstration material
 
 Production builds (`vite build`, i.e. what Cloudflare Pages serves) now ship:

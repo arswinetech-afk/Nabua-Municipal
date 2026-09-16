@@ -618,6 +618,9 @@ export class LocalApi implements RegistryApi {
     else rows = rows.filter((p) => p.status === query.status)
     if (query.sex) rows = rows.filter((p) => p.sex === query.sex)
     if (query.purok) rows = rows.filter((p) => normalizeText(p.purok) === normalizeText(query.purok))
+    if (query.created_since) {
+      rows = rows.filter((p) => (p.created_at ?? '').slice(0, 10) >= query.created_since!)
+    }
     if (query.duplicates_only) {
       rows = rows.filter((p) => pending.some((c) => c.person_id_a === p.id || c.person_id_b === p.id))
     }

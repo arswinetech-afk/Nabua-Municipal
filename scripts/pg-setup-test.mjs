@@ -87,6 +87,24 @@ await db.exec(readFileSync(demoFile, 'utf8'))
 const after = (await db.query(`select count(*)::int persons from persons`)).rows[0]
 check('the demonstration file is idempotent too', after.persons === 160, `(${after.persons} persons)`)
 
+// MIGRATION 0010 (field request 2026-09-16): the "New today" cards drill into
+// the member search restricted to records created on/after local midnight.
+// The search function must accept p_created_since and honour it.
+// fn_search_persons is role-guarded: impersonate the seeded administrator.
+const searchActor = (await db.query(`select id from users where email = 'admin@nabua.gov.ph'`)).rows[0]?.id
+await db.query(`select set_config('nmbr.actor', $1, false)`, [searchActor])
+const sinceArgs = (await db.query(`select pronargs from pg_proc where proname = 'fn_search_persons'`)).rows[0]?.pronargs
+check('fn_search_persons accepts the created-since argument (0010)', Number(sinceArgs) === 13, `(${sinceArgs} args)`)
+const allTotal = (await db.query(`select fn_search_persons(p_limit => 1) ->> 'total' as t`)).rows[0]?.t
+const sinceToday = (await db.query(`select fn_search_persons(p_created_since => current_date, p_limit => 1) ->> 'total' as t`)).rows[0]?.t
+const sinceTomorrow = (await db.query(`select fn_search_persons(p_created_since => current_date + 1, p_limit => 1) ->> 'total' as t`)).rows[0]?.t
+// The demonstration seed backdates most members, so "since today" must equal
+// exactly the rows the table itself says were created today.
+const expectToday = (await db.query(`select count(*)::int as c from persons where created_at::date >= current_date`)).rows[0]?.c
+check('created-since today returns exactly the rows created today',
+  Number(allTotal) === 160 && Number(sinceToday) === Number(expectToday), `(${sinceToday}/${expectToday} of ${allTotal})`)
+check('created-since tomorrow excludes them', Number(sinceTomorrow) === 0, `(${sinceTomorrow})`)
+
 // ---------------------------------------------------------------------
 // REGRESSION (field report 2026-09-15): fn_link_auth_user() must link an
 // authenticated Supabase account to the profile carrying the SAME email —

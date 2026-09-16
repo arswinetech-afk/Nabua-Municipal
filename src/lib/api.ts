@@ -59,6 +59,9 @@ export type SearchQuery = {
   status?: string | null
   sex?: string | null
   purok?: string | null
+  /** Only records created on/after this local date (YYYY-MM-DD); powers the
+   *  "New today" drill-down from the directory and dashboard cards. */
+  created_since?: string | null
   duplicates_only?: boolean
   for_review_only?: boolean
   attention_only?: boolean

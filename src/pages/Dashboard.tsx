@@ -147,9 +147,9 @@ export default function Dashboard() {
               sub={`${stats.active_members.toLocaleString()} active`} icon={<IconUsers />}
               onClick={() => navigate('/members')} />
             <KpiCard label="New Members Today" value={stats.new_today} sub="Encoded since midnight" icon={<IconPerson />}
-              tone={stats.new_today > 0 ? 'success' : 'neutral'} />
+              tone={stats.new_today > 0 ? 'success' : 'neutral'} onClick={() => navigate('/members?since=today')} />
             <KpiCard label="Updated Records Today" value={stats.updated_today} sub="Edits recorded in the audit log"
-              icon={<IconScroll />} />
+              icon={<IconScroll />} onClick={() => navigate('/audit')} />
             <KpiCard label="Possible Duplicates" value={stats.possible_duplicates} sub="Pairs awaiting a decision"
               tone={stats.possible_duplicates > 0 ? 'danger' : 'success'} icon={<IconCopy />}
               onClick={() => navigate('/duplicates')} />

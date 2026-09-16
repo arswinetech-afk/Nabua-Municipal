@@ -318,7 +318,7 @@ export class RemoteApi implements RegistryApi {
   }
 
   async searchPersons(query: SearchQuery): Promise<SearchResult> {
-    const res = await this.rpc<{ total: number; rows: Person[] }>('fn_search_persons', {
+    const args = {
       p_query: query.query ?? '',
       p_barangay_id: query.barangay_id ?? null,
       p_status: query.status ?? null,
@@ -331,8 +331,25 @@ export class RemoteApi implements RegistryApi {
       p_dir: query.dir ?? 'asc',
       p_limit: query.limit ?? 25,
       p_offset: query.offset ?? 0,
-    })
-    return { total: Number(res?.total ?? 0), rows: res?.rows ?? [] }
+    }
+    const call = async (withSince: boolean) => this.rpc<{ total: number; rows: Person[] }>(
+      'fn_search_persons',
+      withSince && query.created_since ? { ...args, p_created_since: query.created_since } : args,
+    )
+    try {
+      const res = await call(true)
+      return { total: Number(res?.total ?? 0), rows: res?.rows ?? [] }
+    } catch (err) {
+      // A database that has not applied migration 0010 yet does not know the
+      // p_created_since argument: fall back to the unfiltered search instead
+      // of showing the encoder an error page (the card count simply will not
+      // match until the migration runs).
+      if (query.created_since && String((err as { message?: string }).message ?? '').includes('fn_search_persons')) {
+        const res = await call(false)
+        return { total: Number(res?.total ?? 0), rows: res?.rows ?? [] }
+      }
+      throw err
+    }
   }
 
   async personIndex(): Promise<PersonIndexRow[]> {

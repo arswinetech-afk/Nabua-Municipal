@@ -621,3 +621,34 @@ describe('REGRESSION 6 — offline sign-in on a device the server has met', () =
     setOnline(true)
   })
 })
+
+/**
+ * REGRESSION 7 — field request 2026-09-16: the "New today" cards open the
+ * member list restricted to records encoded since local midnight, online
+ * (fn_search_persons p_created_since, migration 0010) AND offline (local
+ * mirror). The list the card opens must match the number on the card.
+ */
+describe('REGRESSION 7 — the since-midnight list matches the card count', () => {
+  it('the local mirror honours created_since', async () => {
+    const api = new ApiClient({})
+    const admin = await api.local.signIn('admin@nabua.gov.ph', 'Admin@NMBR2026')
+    expect(admin.ok).toBe(true)
+    const created = await api.local.createPerson({
+      first_name: 'Since', middle_name: '', last_name: 'Midnight',
+      sex: 'FEMALE', date_of_birth: '1990-01-01', barangay_id: null,
+      purok: '', address: '', contact_number: '',
+    } as never)
+    expect(created.ok).toBe(true)
+
+    const today = new Date()
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const tomorrow = new Date(today.getTime() + 86_400_000)
+    const isoTomorrow = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+
+    const withToday = await api.local.searchPersons({ created_since: iso, limit: 100 })
+    expect(withToday.rows.some((r) => r.last_name === 'Midnight')).toBe(true)
+    const withTomorrow = await api.local.searchPersons({ created_since: isoTomorrow, limit: 100 })
+    expect(withTomorrow.rows.some((r) => r.last_name === 'Midnight')).toBe(false)
+    expect(withTomorrow.total).toBe(0)
+  })
+})
