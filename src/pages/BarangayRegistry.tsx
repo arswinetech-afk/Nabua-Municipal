@@ -5,7 +5,7 @@ import { PageHeader } from '../components/Layout'
 import { MemberTable } from '../components/MemberTable'
 import type { Barangay, Person, PersonStatus } from '../lib/types'
 import { PERSON_STATUSES } from '../lib/types'
-import { relativeTime } from '../lib/utils'
+import { relativeTime, downloadXlsx } from '../lib/utils'
 import {
   Badge, Button, Card, IconArrowLeft, IconCopy, IconDownload, IconEye, IconPlus, IconRefresh,
   IconSearch, IconUpload, KpiCard, useToast,
@@ -74,25 +74,21 @@ export default function BarangayRegistry() {
 
   const exportCsv = async () => {
     setExporting(true)
-    const res = await api.searchPersons({ barangay_id: id, status: status === 'ALL' ? null : status, limit: 5000 })
-    const header = ['Reference No.', 'Last name', 'First name', 'Middle name', 'Suffix', 'Birthdate', 'Sex',
-      'Civil status', 'Purok', 'Address', 'Contact', 'Barangay', 'Status', 'Updated']
-    const lines = [header.join(',')]
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-    res.rows.forEach((p) => {
-      lines.push([p.reference_no, p.last_name, p.first_name, p.middle_name, p.suffix, p.date_of_birth, p.sex,
-        p.civil_status, p.purok, p.address, p.contact_number, p.barangay_name, p.status, p.updated_at].map(esc).join(','))
-    })
-    const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `nmbr-${barangay?.name.replace(/\s+/g, '-').toLowerCase() ?? 'barangay'}-members.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    await api.logEvent('EXPORT_MEMBER_LIST', 'BARANGAY', id, barangay?.name ?? null, { rows: res.rows.length })
-    toast.push({ tone: 'info', title: `${res.rows.length} record(s) exported`, message: 'The export was written to the audit log.' })
-    setExporting(false)
+    try {
+      const res = await api.searchPersons({ barangay_id: id, status: status === 'ALL' ? null : status, limit: 5000 })
+      await downloadXlsx(
+        ['Reference No.', 'Last name', 'First name', 'Middle name', 'Suffix', 'Birthdate', 'Sex',
+          'Civil status', 'Purok', 'Address', 'Contact', 'Barangay', 'Status', 'Updated'],
+        res.rows.map((p) => [p.reference_no, p.last_name, p.first_name, p.middle_name, p.suffix, p.date_of_birth, p.sex,
+          p.civil_status, p.purok, p.address, p.contact_number, p.barangay_name, p.status, p.updated_at]),
+        `nmbr-${barangay?.name.replace(/\s+/g, '-').toLowerCase() ?? 'barangay'}-members.xlsx`,
+        (barangay?.name ?? 'Members').slice(0, 31),
+      )
+      await api.logEvent('EXPORT_MEMBER_LIST', 'BARANGAY', id, barangay?.name ?? null, { rows: res.rows.length })
+      toast.push({ tone: 'info', title: `${res.rows.length} record(s) exported`, message: 'The export was written to the audit log.' })
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -181,7 +177,7 @@ export default function BarangayRegistry() {
               </Button>
             )}
             <Button variant="secondary" size="sm" loading={exporting} onClick={() => void exportCsv()}>
-              <IconDownload /> Export CSV
+              <IconDownload /> Export Excel
             </Button>
             <Button variant="ghost" size="sm" onClick={() => window.print()}>
               Print

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { cn, downloadCSV } from '../lib/utils'
+import { cn, downloadXlsx } from '../lib/utils'
 import { Button, EmptyState, IconColumns, IconDownload, IconFilter, IconSearch, Pagination, TableSkeleton } from './ui'
 
 export type Column<T> = {
@@ -93,13 +93,12 @@ export function DataTable<T>({
   const primaryKeys = mobilePrimary ?? columns.slice(0, 2).map((c) => c.key)
 
   const exportCsv = () => {
-    const data = sorted.map((row) => {
-      const record: Record<string, unknown> = {}
-      columns.forEach((c) => { record[c.header] = c.value(row) ?? '' })
-      return record
-    })
-    downloadCSV(data, `${exportName ?? 'nmbr-export'}-${new Date().toISOString().slice(0, 10)}.csv`,
-      columns.map((c) => c.header))
+    void (async () => {
+      const headers = columns.map((c) => c.header)
+      const rows = sorted.map((row) => columns.map((c) => c.value(row) ?? ''))
+      await downloadXlsx(headers, rows,
+        `${exportName ?? 'nmbr-export'}-${new Date().toISOString().slice(0, 10)}.xlsx`, exportName ?? 'Export')
+    })()
   }
 
   return (

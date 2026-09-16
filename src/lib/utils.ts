@@ -77,33 +77,6 @@ export async function sha256Hex(input: string): Promise<string> {
     .join('')
 }
 
-export function toCSV(rows: Array<Record<string, unknown>>, columns?: string[]): string {
-  if (!rows.length) return ''
-  const cols = columns ?? Object.keys(rows[0])
-  const escape = (v: unknown) => {
-    if (v === null || v === undefined) return ''
-    const s = String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-  }
-  return [cols.join(','), ...rows.map((r) => cols.map((c) => escape(r[c])).join(','))].join('\r\n')
-}
-
-export function downloadBlob(content: BlobPart, filename: string, type = 'text/csv;charset=utf-8') {
-  const blob = new Blob([content], { type })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-export function downloadCSV(rows: Array<Record<string, unknown>>, filename: string, columns?: string[]) {
-  downloadBlob('\uFEFF' + toCSV(rows, columns), filename)
-}
-
 export function percent(n: number): string {
   return `${Math.round(n)}%`
 }
@@ -150,4 +123,48 @@ export function initials(name: string): string {
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('')
+}
+
+// ---------------------------------------------------------------------
+// Excel exports go through the same workbook library the import page
+// uses to read them (already a dependency, loaded on demand).
+//
+// Why not CSV: CSV files prefixed with a UTF-8 byte-order mark kept get
+// misdecoded by spreadsheet apps — the BOM surfaced as "ï»¿" in cell A1
+// (field report 2026-09-16, Google Sheets on Android), and apps that
+// ignore the BOM mangle every ñ in the registry. A real .xlsx declares
+// its encoding inside the XML, needs no BOM, opens natively in Excel,
+// Google Sheets and LibreOffice, and round-trips through our importer.
+// ---------------------------------------------------------------------
+
+export function downloadBlob(content: BlobPart, filename: string, type = 'text/csv;charset=utf-8') {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+export type XlsxCell = string | number | null | undefined
+
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/** Build a one-sheet .xlsx workbook in memory (ZIP container, UTF-8 XML). */
+export async function buildXlsxBytes(sheetName: string, headers: string[], rows: XlsxCell[][]): Promise<Uint8Array> {
+  const { default: XLSX } = await import('xlsx')
+  const clean = (v: XlsxCell) => (v === null || v === undefined ? '' : v)
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((r) => r.map(clean))])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31) || 'Export')
+  const raw = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer | Uint8Array
+  return raw instanceof Uint8Array ? new Uint8Array(raw) : new Uint8Array(raw)
+}
+
+export async function downloadXlsx(headers: string[], rows: XlsxCell[][], filename: string, sheetName = 'Export') {
+  const bytes = await buildXlsxBytes(sheetName, headers, rows)
+  downloadBlob(bytes.buffer as ArrayBuffer, filename, XLSX_MIME)
 }

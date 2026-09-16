@@ -4,7 +4,7 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DataTable, type Column } from '../components/DataTable'
 import type { Barangay, PersonIndexRow } from '../lib/types'
-import { formatDate, relativeTime } from '../lib/utils'
+import { formatDate, relativeTime, downloadXlsx } from '../lib/utils'
 import { fullName } from '../lib/normalize'
 import {
   Badge, Button, Card, Field, IconAlert, IconChart, IconDownload, IconPrint, IconRefresh, KpiCard,
@@ -77,7 +77,7 @@ export default function Reports() {
         actions={
           <>
             <Button variant="secondary" size="sm" onClick={() => void load()} loading={loading}><IconRefresh /> Re-run</Button>
-            <Button variant="secondary" size="sm" onClick={() => exportRows(kind, data)}><IconDownload /> Export CSV</Button>
+            <Button variant="secondary" size="sm" onClick={() => exportRows(kind, data)}><IconDownload /> Export Excel</Button>
             <Button variant="primary" size="sm" onClick={() => window.print()}><IconPrint /> Print / PDF</Button>
           </>
         }
@@ -309,19 +309,15 @@ function summarise(kind: Kind, data: ReportRow[]) {
 function exportRows(kind: Kind, data: ReportRow[]) {
   if (data.length === 0) return
   const header = Object.keys(data[0])
-  const lines = [header.join(',')]
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-  data.forEach((row) => {
-    lines.push(header.map((h) => {
-      const v = row[h]
-      return esc(typeof v === 'object' && v !== null ? JSON.stringify(v) : v)
-    }).join(','))
-  })
-  const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `nmbr-${kind}-${new Date().toISOString().slice(0, 10)}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+  void (async () => {
+    await downloadXlsx(
+      header,
+      data.map((row) => header.map((h) => {
+        const v = row[h]
+        return typeof v === 'object' && v !== null ? JSON.stringify(v) : (v as string | number | null | undefined)
+      })),
+      `nmbr-${kind}-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      kind.replace(/_/g, ' ').slice(0, 31),
+    )
+  })()
 }

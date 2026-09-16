@@ -652,3 +652,32 @@ describe('REGRESSION 7 — the since-midnight list matches the card count', () =
     expect(withTomorrow.total).toBe(0)
   })
 })
+
+/**
+ * REGRESSION 8 — field report 2026-09-16, 08:16 screenshot: every exported
+ * "Excel" file opened with "ï»¿" glued to cell A1. Those exports were CSV
+ * text prefixed with a UTF-8 byte-order mark; spreadsheet apps that decode
+ * Windows-1252 show the BOM as characters (and mangle every ñ besides).
+ * Exports are now genuine .xlsx workbooks built with the same library the
+ * import page reads them with — no BOM anywhere, encoding declared in XML.
+ */
+describe('REGRESSION 8 — exports are real workbooks, round-trip UTF-8 verbatim', () => {
+  it('builds a .xlsx (ZIP magic, no BOM) that re-imports with ñ intact', async () => {
+    const { buildXlsxBytes } = await import('../src/lib/utils')
+    const { default: XLSX } = await import('xlsx')
+    const bytes = await buildXlsxBytes('Members', ['Member', 'Barangay', 'Count'], [
+      ['Quiñones, Paula', 'SAN JUAN', 2],
+      ['Sarah Mae Neñez', 'ANGUSTIA', ''],
+    ])
+    // A ZIP container, never a BOM-prefixed text file.
+    expect(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04).toBe(true)
+    expect(String.fromCharCode(...bytes.slice(0, 8))).not.toContain('\uFEFF')
+
+    // …and the import path reads back exactly what the office encoded.
+    const wb = XLSX.read(bytes, { type: 'array' })
+    const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+    expect(json).toHaveLength(2)
+    expect(json[0]).toMatchObject({ Member: 'Quiñones, Paula', Barangay: 'SAN JUAN', Count: 2 })
+    expect(json[1]).toMatchObject({ Member: 'Sarah Mae Neñez', Barangay: 'ANGUSTIA' })
+  })
+})

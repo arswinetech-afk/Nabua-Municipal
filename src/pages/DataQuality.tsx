@@ -4,7 +4,7 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DataTable, type Column } from '../components/DataTable'
 import type { Barangay, DataQualityRow, Person } from '../lib/types'
-import { cn, formatDate, downloadCSV } from '../lib/utils'
+import { cn, formatDate, downloadXlsx } from '../lib/utils'
 import { fullName } from '../lib/normalize'
 import {
   Badge, Button, Card, IconAlert, IconDownload, IconEye, IconPlus, IconRefresh, IconSearch,
@@ -72,25 +72,30 @@ export default function DataQuality() {
 
   const exportDetail = () => {
     if (!detail) return
-    if (groups.length) {
-      downloadCSV(
-        groups.flatMap((g) => g.members.map((p) => ({
-          group: g.key, reference_no: p.reference_no, name: fullName(p),
-          birthdate: p.date_of_birth ?? '', barangay: p.barangay_name ?? '', contact: p.contact_number ?? '',
-        }))),
-        `nmbr-data-quality-${detail.id}.csv`,
+    void (async () => {
+      if (groups.length) {
+        await downloadXlsx(
+          ['Group', 'Reference No.', 'Name', 'Birthdate', 'Barangay', 'Contact'],
+          groups.flatMap((g) => g.members.map((p) => [
+            g.key, p.reference_no, fullName(p),
+            p.date_of_birth ?? '', p.barangay_name ?? '', p.contact_number ?? '',
+          ])),
+          `nmbr-data-quality-${detail.id}.xlsx`, 'Data quality',
+        )
+        toast.push({ tone: 'info', title: 'Export created', message: 'The list was written to an Excel file.' })
+        return
+      }
+      await downloadXlsx(
+        ['Reference No.', 'Name', 'Birthdate', 'Sex', 'Barangay', 'Purok', 'Address', 'Contact', 'Status'],
+        records.map((p) => [
+          p.reference_no, fullName(p), p.date_of_birth ?? '',
+          p.sex ?? '', p.barangay_name ?? '', p.purok ?? '', p.address ?? '',
+          p.contact_number ?? '', p.status,
+        ]),
+        `nmbr-data-quality-${detail.id}.xlsx`, 'Data quality',
       )
-      return
-    }
-    downloadCSV(
-      records.map((p) => ({
-        reference_no: p.reference_no, name: fullName(p), birthdate: p.date_of_birth ?? '',
-        sex: p.sex ?? '', barangay: p.barangay_name ?? '', purok: p.purok ?? '', address: p.address ?? '',
-        contact: p.contact_number ?? '', status: p.status,
-      })),
-      `nmbr-data-quality-${detail.id}.csv`,
-    )
-    toast.push({ tone: 'info', title: 'Export created', message: 'The list was written to a CSV file.' })
+      toast.push({ tone: 'info', title: 'Export created', message: 'The list was written to an Excel file.' })
+    })()
   }
 
   const columns: Array<Column<Person>> = [
@@ -199,7 +204,7 @@ export default function DataQuality() {
         footer={
           <>
             <Button variant="ghost" onClick={() => setDetail(null)}>Close</Button>
-            <Button variant="secondary" onClick={exportDetail}><IconDownload /> Export CSV</Button>
+            <Button variant="secondary" onClick={exportDetail}><IconDownload /> Export Excel</Button>
             {detail?.id === 'possible_duplicates' && (
               <Button variant="primary" onClick={() => navigate('/duplicates')}>Open Duplicate Center</Button>
             )}

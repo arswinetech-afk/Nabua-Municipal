@@ -16,7 +16,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import type { ImportRow, ImportSummary, PersonInput } from '../lib/api'
 import type { Barangay } from '../lib/types'
 import { normalizeDate, normalizeContact, normalizeName } from '../lib/normalize'
-import { cn, relativeTime, downloadCSV } from '../lib/utils'
+import { cn, relativeTime, downloadXlsx } from '../lib/utils'
 import { fullName } from '../lib/normalize'
 import {
   Badge, Button, Card, Field, IconAlert, IconArrowLeft, IconArrowRight, IconCheck, IconDownload,
@@ -904,5 +904,5 @@ function downloadTemplate(barangays: Barangay[], defaultBarangay: string) {
     'Contact Number', 'Purok', 'Address', 'Barangay', 'Remarks']
   const example = ['Dela Cruz', 'Juan', 'Santos', '', '01/12/1985', 'M', 'Married', '09171234567',
     'Purok 3', 'Purok 3, Nabua, Camarines Sur', barangays.find((b) => b.id === defaultBarangay)?.name ?? barangays[0]?.name ?? '', '']
-  downloadCSV([Object.fromEntries(header.map((h, i) => [h, example[i]]))], 'nmbr-import-template.csv', header)
+  void downloadXlsx(header, [example], 'nmbr-import-template.xlsx', 'Template')
 }

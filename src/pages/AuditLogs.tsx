@@ -3,7 +3,7 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DataTable, type Column } from '../components/DataTable'
 import type { AuditLogRow, ManagedUser } from '../lib/types'
-import { formatDateTime, relativeTime } from '../lib/utils'
+import { formatDateTime, relativeTime, downloadXlsx } from '../lib/utils'
 import {
   Badge, Button, Card, Field, IconAlert, IconDownload, IconEye, IconRefresh, IconScroll, Modal,
 } from '../components/ui'
@@ -61,23 +61,18 @@ export default function AuditLogs() {
   }, [load])
 
   const exportCsv = () => {
-    const header = ['Timestamp', 'User', 'Action', 'Entity', 'Record', 'Reason', 'Previous values', 'New values']
-    const lines = [header.join(',')]
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-    rows.forEach((r) => {
-      lines.push([
-        r.timestamp, r.user_name ?? 'System', r.action, r.entity_type, r.entity_label ?? r.entity_id ?? '',
-        r.reason ?? '', JSON.stringify(r.old_values ?? ''), JSON.stringify(r.new_values ?? ''),
-      ].map(esc).join(','))
-    })
-    const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `nmbr-audit-log-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    void (async () => {
+      await downloadXlsx(
+        ['Timestamp', 'User', 'Action', 'Entity', 'Record', 'Reason', 'Previous values', 'New values'],
+        rows.map((r) => [
+          r.timestamp, r.user_name ?? 'System', r.action, r.entity_type, r.entity_label ?? r.entity_id ?? '',
+          r.reason ?? '', JSON.stringify(r.old_values ?? ''), JSON.stringify(r.new_values ?? ''),
+        ]),
+        `nmbr-audit-log-${new Date().toISOString().slice(0, 10)}.xlsx`, 'Audit log',
+      )
+    })()
   }
+
 
   const columns: Array<Column<AuditLogRow>> = [
     {
@@ -121,7 +116,7 @@ export default function AuditLogs() {
         actions={
           <>
             <Button variant="secondary" size="sm" onClick={() => void load()} loading={loading}><IconRefresh /> Refresh</Button>
-            <Button variant="secondary" size="sm" onClick={exportCsv}><IconDownload /> Export CSV</Button>
+            <Button variant="secondary" size="sm" onClick={exportCsv}><IconDownload /> Export Excel</Button>
           </>
         }
       />
