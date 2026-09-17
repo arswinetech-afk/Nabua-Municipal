@@ -352,8 +352,9 @@ export class RemoteApi implements RegistryApi {
     }
   }
 
-  async personIndex(): Promise<PersonIndexRow[]> {
-    const res = await this.rpc<{ rows: PersonIndexRow[] }>('fn_person_index', { p_barangay_id: null, p_limit: 20000 })
+  async personIndex(offset = 0, limit = 10000): Promise<PersonIndexRow[]> {
+    const res = await this.rpc<{ rows: PersonIndexRow[] }>('fn_person_index',
+      { p_barangay_id: null, p_limit: limit, p_offset: offset })
     return res?.rows ?? []
   }
 

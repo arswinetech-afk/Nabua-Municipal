@@ -13,6 +13,20 @@ process.env.VITE_SUPABASE_ENABLED = 'false'
  * path the office uses when the municipal link drops. No Supabase host is
  * contacted, so the suite runs anywhere.
  */
+// The persons mirror lives in IndexedDB (municipal scale outgrows the
+// ~5 MB localStorage quota); give every case a clean virtual database.
+import 'fake-indexeddb/auto'
+beforeEach(async () => {
+  const { idbClose } = await import('../src/lib/idb')
+  await idbClose()
+  await new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase('nmbr-store')
+    req.onsuccess = () => resolve()
+    req.onerror = () => resolve()
+    req.onblocked = () => resolve()
+  })
+})
+
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()

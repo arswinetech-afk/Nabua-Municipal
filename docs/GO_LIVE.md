@@ -310,3 +310,36 @@ profiles on the server (§3).
 * Back up: Supabase dashboard → Database → Backups (daily on the paid plan;
   on the free tier schedule `pg_dump` through the provided service role).
 * Never run `NMBR-demonstration-data.sql` on the live database.
+
+## 9. Capacity: 40 000 members and the offline copy
+
+Measured against the real schema (`scripts/pg-size-estimate.mjs`, PGlite =
+real PostgreSQL storage internals, seeded demo scaled linearly):
+
+| What | At 40 000 members |
+|---|---|
+| `persons` table + all indexes (incl. trigram name index) | ≈ 30–70 MB |
+| `audit_logs` (one immutable row per encode/edit, with value snapshot) | ≈ 40–80 MB |
+| `member_barangay_history`, cases, users | a few MB |
+| **Total database** | **well under 150 MB — about a quarter of the free Supabase tier (500 MB)** |
+
+Server-side, 40 000 is comfortably small: every list query is indexed and
+paginated (`fn_search_persons` never returns the whole table), and the
+duplicate guard runs per encode, not per scan.
+
+**Offline copy.** The on-device mirror is ≈ 400 bytes per member
+(≈ 16 MB at 40 000). That can never live in `localStorage` (browsers cap an
+origin near 5 MB), so since migration 0011 the mirror:
+
+* is fetched from the server **page by page** (10 000 members per
+  round-trip, `fn_person_index` gained `p_offset`), so no single ~16 MB
+  response stalls a weak LTE link;
+* is stored in **IndexedDB**, whose quota is disk-based (hundreds of MB),
+  and rehydrated on every launch — offline sign-in, search and duplicate
+  checks work against it exactly as before;
+* keeps only tiny things in `localStorage` (session, queue, audit, settings);
+* degrades honestly: if a browser refuses the write (no IndexedDB, disk
+  full), the office sees a warning toast — online work is never affected.
+
+REGRESSION 11 proves a 400-member mirror survives a restart outside
+localStorage; the PG suite proves the paging returns every row exactly once.

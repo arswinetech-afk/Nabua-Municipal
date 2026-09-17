@@ -32,7 +32,7 @@ type Operation =
 
 export type SyncEvent = {
   type: 'queued' | 'pushed' | 'conflict' | 'failed' | 'online' | 'offline' | 'mirrored'
-  | 'provisioning' | 'not-provisioned' | 'auth-required'
+  | 'provisioning' | 'not-provisioned' | 'auth-required' | 'storage-warning'
   detail?: string
 }
 
@@ -105,6 +105,8 @@ export const PERMANENT_REJECTION_GUIDANCE =
 export class ApiClient implements RegistryApi {
   readonly local: LocalApi
   readonly remote: RemoteApi | null
+  /** Resolves once the on-device mirror store (IndexedDB) has been read. */
+  get ready(): Promise<void> { return this.local.hydrated }
   private listeners = new Set<(e: SyncEvent) => void>()
   private syncing = false
   private sessionSource: 'remote' | 'local' = 'local'
@@ -381,11 +383,27 @@ export class ApiClient implements RegistryApi {
   }
 
   /** Pull a compact mirror of the registry so the office can keep working offline. */
+  /**
+   * Mirror the registry page by page (10 000 per round-trip, 60 000 cap):
+   * one giant response would stall a municipal-scale registry on the
+   * office LTE link, and fn_person_index now supports offsets (0011).
+   */
+  private async pagedPersonIndex(): Promise<PersonIndexRow[]> {
+    const PAGE = 10000
+    const out: PersonIndexRow[] = []
+    for (let off = 0; off < 60000; off += PAGE) {
+      const chunk = await this.remote!.personIndex(off, PAGE)
+      out.push(...chunk)
+      if (chunk.length < PAGE) break
+    }
+    return out
+  }
+
   async refreshMirror(): Promise<void> {
     if (!this.remote || !this.usingServer) return
     try {
       const [persons, barangays, cases] = await Promise.all([
-        this.remote.personIndex(),
+        this.pagedPersonIndex(),
         this.remote.listBarangays(true),
         this.remote.listDuplicateCases({ status: 'PENDING', limit: 200 }).then((r) => r.rows).catch(() => []),
       ])
@@ -405,6 +423,12 @@ export class ApiClient implements RegistryApi {
       }
       this.local.setLastSync(new Date().toISOString())
       this.emit({ type: 'mirrored', detail: `${mirror.length} records cached for offline use` })
+      if (this.local.storageLimited) {
+        this.emit({
+          type: 'storage-warning',
+          detail: 'This device could not save the full offline copy (browser storage refused the write).',
+        })
+      }
     } catch {
       /* mirroring is best-effort */
     }

@@ -56,6 +56,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [serverStatus, setServerStatus] = useState<ServerStatus>(() => api.serverStatus)
   const [tick, setTick] = useState(0)
   const userRef = useRef<SessionUser | null>(null)
+  const storageWarned = useRef(false)
 
   const refreshPending = useCallback(() => {
     setPendingCount(api.pendingChanges().filter((p) => p.status !== 'DONE').length)
@@ -116,6 +117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true
     ;(async () => {
+      await api.ready
       const session = await api.restoreSession()
       if (!mounted) return
       userRef.current = session
@@ -153,6 +155,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           tone: 'warning',
           title: 'The municipal database is not set up yet',
           message: 'Your work is saved on this device and will upload automatically once the setup SQL has been run in Supabase.',
+        })
+      }
+      if (e.type === 'storage-warning' && !storageWarned.current) {
+        storageWarned.current = true
+        toast.push({
+          tone: 'warning',
+          title: 'Offline copy is incomplete on this device',
+          message: 'The browser refused to store the full registry copy (storage quota). Online work is unaffected; offline search on this device may be limited. Free up browser storage or use a device with more space.',
         })
       }
       if (e.type === 'auth-required') {

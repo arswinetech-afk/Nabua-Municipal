@@ -105,6 +105,15 @@ check('created-since today returns exactly the rows created today',
   Number(allTotal) === 160 && Number(sinceToday) === Number(expectToday), `(${sinceToday}/${expectToday} of ${allTotal})`)
 check('created-since tomorrow excludes them', Number(sinceTomorrow) === 0, `(${sinceTomorrow})`)
 
+// MIGRATION 0011: the offline mirror fetches the registry page by page so a
+// 40 000-member municipality never becomes one ~16 MB response.
+const idxArgs = (await db.query(`select pronargs from pg_proc where proname = 'fn_person_index'`)).rows[0]?.pronargs
+check('fn_person_index accepts an offset (0011)', Number(idxArgs) === 3, `(${idxArgs} args)`)
+const page1 = (await db.query(`select jsonb_array_length(fn_person_index(p_limit => 50, p_offset => 0) -> 'rows') as n`)).rows[0]?.n
+const page2 = (await db.query(`select jsonb_array_length(fn_person_index(p_limit => 50, p_offset => 50) -> 'rows') as n`)).rows[0]?.n
+const page9 = (await db.query(`select jsonb_array_length(fn_person_index(p_limit => 50, p_offset => 150) -> 'rows') as n`)).rows[0]?.n
+check('the mirror pages without gaps or overruns', Number(page1) === 50 && Number(page2) === 50 && Number(page9) === 10, `(${page1}/${page2}/${page9})`)
+
 // ---------------------------------------------------------------------
 // REGRESSION (field report 2026-09-15): fn_link_auth_user() must link an
 // authenticated Supabase account to the profile carrying the SAME email —

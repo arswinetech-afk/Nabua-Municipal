@@ -733,3 +733,37 @@ describe('REGRESSION 10 — the spreadsheet module loader accepts both module sh
     expect(() => pickXlsx(undefined)).toThrow(/spreadsheet module did not load/)
   })
 })
+
+/**
+ * REGRESSION 11 — capacity question 2026-09-16: "can it handle 40,000
+ * people… will offline still work?" localStorage is capped near 5 MB per
+ * origin; a 40 000-member mirror is ~16 MB of JSON and would silently blow
+ * it. The mirror therefore lives in IndexedDB (disk-scale quota), is
+ * fetched from the server page by page, and must survive a restart.
+ */
+describe('REGRESSION 11 — the offline mirror survives restarts at municipal scale', () => {
+  const member = (i: number) => ({
+    id: `p-${i}`, reference_no: `NMBR-${String(i).padStart(6, '0')}`,
+    first_name: `First${i}`, middle_name: '', last_name: `Last${i}`, suffix: null,
+    date_of_birth: '1990-01-01', sex: 'FEMALE', civil_status: null, contact_number: '',
+    address: 'Purok 1', purok: '1', barangay_id: null, barangay_name: '', status: 'ACTIVE',
+    remarks: null, household_id: null, created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  }) as Person
+
+  it('keeps the mirror out of the 5 MB store and rehydrates it after a restart', async () => {
+    const a = new ApiClient({})
+    a.local.replaceMirror({ persons: Array.from({ length: 400 }, (_, i) => member(i)), barangays: [] })
+    await a.local.flushPersons()
+
+    const stored = JSON.parse(localStorage.getItem('nmbr.local.v1') ?? '{}') as { persons?: unknown[] }
+    expect(stored.persons ?? []).toHaveLength(0) // mirror no longer competes for the tiny quota
+
+    const b = new ApiClient({}) // a restart: fresh instance, same device store
+    await b.local.hydrated
+    const page = await b.local.searchPersons({ limit: 1 })
+    expect(page.total).toBe(400)
+    const hit = await b.local.searchPersons({ query: 'First231 Last231', limit: 1 })
+    expect(hit.rows[0]?.reference_no).toBe('NMBR-000231')
+  })
+})

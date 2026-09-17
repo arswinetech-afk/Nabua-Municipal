@@ -35,7 +35,10 @@ import {
   barangayOverview, dashboardStats, dataQuality, live, qualityRecords, ageGroupCounts, sexCounts, statusCounts,
 } from './analytics'
 
+import { idbAvailable, idbGet, idbSet } from './idb'
+
 const STORAGE_KEY = 'nmbr.local.v1'
+const PERSONS_IDB_KEY = 'persons'
 const SESSION_KEY = 'nmbr.session.v1'
 const SESSION_TIMEOUT_FALLBACK = 30
 const SALT = 'nmbr-local-demo-salt'
@@ -100,8 +103,55 @@ export class LocalApi implements RegistryApi {
   private lastActivity = Date.now()
   private listeners = new Set<() => void>()
 
+  /** Resolves once the persons mirror has been read from IndexedDB. */
+  readonly hydrated: Promise<void>
+  /** True when the device store refused a write (quota / no IndexedDB). */
+  storageLimited = false
+  private personsTimer: ReturnType<typeof setTimeout> | null = null
+
   constructor() {
     this.db = this.load()
+    this.hydrated = this.hydrate()
+    if (typeof window !== 'undefined') {
+      const flush = () => { void this.flushPersons() }
+      window.addEventListener('pagehide', flush)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flush()
+      })
+    }
+  }
+
+  /**
+   * Persons live in IndexedDB at municipal scale. On boot, take them from
+   * there; a store written by an older build (persons still inside
+   * localStorage) is migrated on first run.
+   */
+  private async hydrate(): Promise<void> {
+    if (!idbAvailable()) return
+    const stored = await idbGet<Person[]>(PERSONS_IDB_KEY)
+    if (stored) {
+      this.db.persons = stored
+    } else if (this.db.persons.length) {
+      await idbSet(PERSONS_IDB_KEY, this.db.persons)
+      this.persist()
+    }
+  }
+
+  /** Write the mirror through now (used before unload and in tests). */
+  async flushPersons(): Promise<void> {
+    if (this.personsTimer) { clearTimeout(this.personsTimer); this.personsTimer = null }
+    if (!idbAvailable()) return
+    const ok = await idbSet(PERSONS_IDB_KEY, this.db.persons)
+    if (!ok) this.storageLimited = true
+  }
+
+  private schedulePersons(): void {
+    if (!idbAvailable()) return
+    if (this.personsTimer) clearTimeout(this.personsTimer)
+    this.personsTimer = setTimeout(() => {
+      this.personsTimer = null
+      void this.flushPersons()
+    }, 400)
   }
 
   // ------------------------------------------------------------------ storage
@@ -121,11 +171,17 @@ export class LocalApi implements RegistryApi {
   }
 
   private persist(db: LocalDB = this.db) {
+    // localStorage keeps everything except the persons mirror, which lives
+    // in IndexedDB (see idb.ts): at 40 000 members the mirror is ~16 MB and
+    // would blow the ~5 MB origin quota while stalling every save.
+    const small: LocalDB = idbAvailable() ? { ...db, persons: [] } : db
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(small))
     } catch (err) {
+      this.storageLimited = true
       console.warn('NMBR: local store could not be persisted (quota?)', err)
     }
+    if (db === this.db) this.schedulePersons()
     this.listeners.forEach((l) => l())
   }
 
