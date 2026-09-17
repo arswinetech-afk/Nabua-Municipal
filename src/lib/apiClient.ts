@@ -392,7 +392,16 @@ export class ApiClient implements RegistryApi {
     const PAGE = 10000
     const out: PersonIndexRow[] = []
     for (let off = 0; off < 60000; off += PAGE) {
-      const chunk = await this.remote!.personIndex(off, PAGE)
+      let chunk: PersonIndexRow[]
+      try {
+        chunk = await this.remote!.personIndex(off, PAGE)
+      } catch (err) {
+        // A database that has not applied migration 0011 yet refuses the
+        // offset argument: fall back to the old single-response mirror
+        // (capped at 20 000) rather than leaving the device with nothing.
+        if (off === 0) return this.remote!.personIndexLegacy()
+        throw err
+      }
       out.push(...chunk)
       if (chunk.length < PAGE) break
     }

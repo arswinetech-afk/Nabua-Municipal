@@ -358,6 +358,13 @@ export class RemoteApi implements RegistryApi {
     return res?.rows ?? []
   }
 
+  /** Pre-0011 databases only know the two-argument mirror function. */
+  async personIndexLegacy(): Promise<PersonIndexRow[]> {
+    const res = await this.rpc<{ rows: PersonIndexRow[] }>('fn_person_index',
+      { p_barangay_id: null, p_limit: 20000 })
+    return res?.rows ?? []
+  }
+
   async getPerson(id: string): Promise<PersonDetail | null> {
     return this.rpc<PersonDetail | null>('fn_person_detail', { p_person_id: id })
   }
