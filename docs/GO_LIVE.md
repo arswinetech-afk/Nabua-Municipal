@@ -343,3 +343,60 @@ origin near 5 MB), so since migration 0011 the mirror:
 
 REGRESSION 11 proves a 400-member mirror survives a restart outside
 localStorage; the PG suite proves the paging returns every row exactly once.
+
+## 10. Subsidy (ayuda) programmes — and the line this system will not cross
+
+Migration 0012 adds two tables — `subsidy_programs` (Bigasan, Walang Gutom,
+rice/financial aid, …) and `subsidy_beneficiaries` — plus five `fn_subsidy_*`
+functions with the same role gates as the rest of the registry:
+
+| Action | Who |
+|---|---|
+| Read programmes and beneficiary lists | every signed-in role |
+| Add a member to a programme list | ENCODER and above |
+| Create/edit a programme; remove a beneficiary | ADMINISTRATOR / SYSTEM_ADMIN |
+
+The daily flow is the paper list: the barangay hands the encoder a printed
+list; the encoder opens the programme, filters by barangay, searches each
+name against the registry and adds the real member record — recording
+`paper_ref` (the row on the paper), whether it was `verified` against the
+barangay validation, and optional notes. A member can only be listed once
+per programme (`ALREADY_LISTED`), every add/remove is written to the audit
+ledger with the acting officer, and removals require a reason. Members carry
+a neutral `classification_code` (4Ps, senior citizen, PWD, solo parent,
+indigent — barangay-validated, farmer/fisherfolk) set at encode time or on
+the profile.
+
+**The boundary.** The original request proposed tying inclusion to voting:
+members tagged as having voted for the incumbent would be *automatically*
+included, everyone else automatically excluded. This system deliberately
+does not do that, and never will:
+
+* **No voting or political category is stored anywhere** — not on the
+  person, not on the beneficiary row. `CLASSIFICATION_CODES` contains only
+  neutral, government-standard sectors.
+* **No automatic eligibility engine.** Inclusion in any programme is always
+  an explicit, per-row human decision by an encoder or admin, exactly like
+  the paper-list cross-check the barangays already perform. The software
+  records and audits the decision; it never makes it.
+
+Why: a municipal registry that grants or withholds aid based on political
+support is vote-buying infrastructure. It would expose the municipality, the
+barangay officials and the operators personally (COMELEC resolution on vote
+buying; DSWD/DSMB list-based assistance rules require validated,
+needs-based targeting), and once such a field exists in a database it
+cannot be un-leaked. The audit trail here is designed so every ayuda
+decision points at a named officer and a barangay document — the opposite
+of an invisible automatic rule.
+
+Offline behaviour is unchanged from the rest of the registry: programme and
+list edits apply on the device immediately and queue for upload
+(`upsertSubsidyProgram`, `addSubsidyBeneficiary`, `removeSubsidyBeneficiary`
+replay in the Sync Centre). REGRESSION 12 proves the dedupe, the explicit
+classification override and restart durability; the PG suite proves the
+server-side gates.
+
+**Go-live step:** run migration 0012 on the production database (it is
+already included in `setup/NMBR-supabase-setup.sql`). Until it is run, the
+Subsidies page reports the honest "waiting for the server setup" state
+instead of failing silently.

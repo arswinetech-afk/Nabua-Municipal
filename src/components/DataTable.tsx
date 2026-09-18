@@ -41,6 +41,8 @@ type DataTableProps<T> = {
   exportName?: string
   /** letterhead title for the PDF extract (defaults to a tidied exportName) */
   exportTitle?: string
+  /** per-row action buttons (screen only — never part of exports) */
+  renderActions?: (row: T) => React.ReactNode
   mobilePrimary?: string[]
   dense?: boolean
   stickyHeader?: boolean
@@ -49,7 +51,7 @@ type DataTableProps<T> = {
 export function DataTable<T>({
   rows, columns, rowKey, loading, emptyTitle = 'No records found', emptyMessage, emptyAction,
   onRowClick, total, limit = 25, offset = 0, onPage, search, onSearch, searchPlaceholder,
-  filters, exportName, exportTitle, mobilePrimary, dense, stickyHeader = true,
+  filters, exportName, exportTitle, renderActions, mobilePrimary, dense, stickyHeader = true,
 }: DataTableProps<T>) {
   const user = useAppOptional()?.user ?? null
   const toast = useToast()
@@ -253,6 +255,7 @@ export function DataTable<T>({
                       )}
                     </th>
                   ))}
+                  {renderActions && <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide text-ink-soft">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -267,6 +270,7 @@ export function DataTable<T>({
                         {c.render ? c.render(row) : String(c.value(row) ?? '—')}
                       </td>
                     ))}
+                    {renderActions && <td className="px-3 py-2 text-right">{renderActions(row)}</td>}
                   </tr>
                 ))}
               </tbody>

@@ -12,6 +12,7 @@
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, Household, ManagedUser,
   OutboxItem, Person, PersonIndexRow, SystemSettings,
+  SubsidyProgram, SubsidyBeneficiary,
 } from './types'
 import type { DuplicateMatch, PersonComparable } from './duplicateEngine'
 
@@ -41,6 +42,7 @@ export type PersonInput = {
   barangay_id?: string | null
   status?: string | null
   remarks?: string | null
+  classification_code?: string | null
 }
 
 export type CreatePersonResult = {
@@ -175,6 +177,14 @@ export interface RegistryApi {
 
   // ---- registry reads
   dashboardStats(): Promise<DashboardStats>
+  listSubsidyPrograms(): Promise<SubsidyProgram[]>
+  upsertSubsidyProgram(input: Partial<SubsidyProgram> & { name: string }): Promise<ApiResult<SubsidyProgram>>
+  listSubsidyBeneficiaries(programId: string, barangayId?: string | null): Promise<SubsidyBeneficiary[]>
+  addSubsidyBeneficiary(input: {
+    program_id: string; person_id: string; barangay_id?: string | null
+    classification_code?: string | null; verified?: boolean; paper_ref?: string | null; notes?: string | null
+  }): Promise<ApiResult<SubsidyBeneficiary>>
+  removeSubsidyBeneficiary(id: string, reason?: string | null): Promise<ApiResult<{ id: string }>>
   searchPersons(query: SearchQuery): Promise<SearchResult>
   personIndex(): Promise<PersonIndexRow[]>
   getPerson(id: string): Promise<PersonDetail | null>

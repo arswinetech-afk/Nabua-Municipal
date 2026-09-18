@@ -767,3 +767,79 @@ describe('REGRESSION 11 — the offline mirror survives restarts at municipal sc
     expect(hit.rows[0]?.reference_no).toBe('NMBR-000231')
   })
 })
+
+/**
+ * REGRESSION 12 — field request 2026-09-18: a SUBSIDY (ayuda) module where
+ * admins create programmes (bigasan, walang-gutom, …), encoders add members
+ * per barangay from the paper list the barangay supplies, and every member
+ * carries a neutral sector classification code. Inclusion must always be an
+ * explicit, audited human decision — never inferred from any other data
+ * (see docs/GO_LIVE.md §10). The list must survive a device restart offline.
+ */
+describe('REGRESSION 12 — subsidy lists are explicit, deduplicated and durable', () => {
+  // A server-issued session cached on the device (what restoreSession finds
+  // after an online sign-in); production devices carry no local user list.
+  function cachedSession() {
+    localStorage.setItem('nmbr.session.v1', JSON.stringify({
+      user: {
+        id: 'u-enc', name: 'Encoder One', email: 'encoder@nabua.gov.ph',
+        role: 'SYSTEM_ADMIN', active: true, barangay_scope: null, last_login: null,
+      },
+      at: Date.now(),
+    }))
+  }
+
+  const member = (i: number) => ({
+    id: `p-${i}`, reference_no: `NMBR-${String(i).padStart(6, '0')}`,
+    first_name: `Juan${i}`, middle_name: '', last_name: `DelaCruz${i}`, suffix: null,
+    date_of_birth: '1980-01-01', sex: 'MALE', civil_status: null, contact_number: '',
+    address: 'Purok 1', purok: '1', barangay_id: null, barangay_name: '', status: 'ACTIVE',
+    remarks: null, household_id: null, classification_code: i % 2 ? '4PS' : null,
+    created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+  }) as Person
+
+  it('a programme list records the paper-list decision once per member and survives a restart', async () => {
+    cachedSession()
+    const a = new ApiClient({})
+    await a.local.restoreSession()
+    a.local.replaceMirror({ persons: Array.from({ length: 5 }, (_, i) => member(i)), barangays: [] })
+
+    const prog = await a.local.upsertSubsidyProgram({ name: 'Bigasan 2026', description: 'Rice subsidy', active: true })
+    expect(prog.ok).toBe(true)
+    const pid = prog.ok && prog.data.id
+
+    const add = await a.local.addSubsidyBeneficiary({
+      program_id: pid, person_id: 'p-1', verified: true, paper_ref: 'Brgy list row 7', classification_code: 'IND',
+    })
+    expect(add.ok).toBe(true)
+
+    // The same member cannot be listed twice on one programme.
+    const dup = await a.local.addSubsidyBeneficiary({ program_id: pid, person_id: 'p-1' })
+    expect(dup.ok).toBe(false)
+    expect((dup as { code?: string }).code).toBe('ALREADY_LISTED')
+
+    // A member outside the registry is refused honestly.
+    const ghost = await a.local.addSubsidyBeneficiary({ program_id: pid, person_id: 'p-999' })
+    expect(ghost.ok).toBe(false)
+
+    const rows = await a.local.listSubsidyBeneficiaries(pid)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.person_name).toBe('Juan1 DelaCruz1')
+    expect(rows[0]?.classification_code).toBe('IND') // explicit choice wins…
+    expect(rows[0]?.paper_ref).toBe('Brgy list row 7')
+
+    // …while the member's own neutral classification stays on the record.
+    const carry = await a.local.addSubsidyBeneficiary({ program_id: pid, person_id: 'p-3' })
+    expect(carry.ok).toBe(true)
+    const after = await a.local.listSubsidyBeneficiaries(pid)
+    expect(after.find((b) => b.person_id === 'p-3')?.classification_code).toBe('4PS')
+
+    // Restart the device: the ledger is still there, offline.
+    const b = new ApiClient({})
+    await b.local.hydrated
+    const programs = await b.local.listSubsidyPrograms()
+    expect(programs.some((p) => p.name === 'Bigasan 2026')).toBe(true)
+    const restarted = await b.local.listSubsidyBeneficiaries(pid)
+    expect(restarted).toHaveLength(2)
+  })
+})

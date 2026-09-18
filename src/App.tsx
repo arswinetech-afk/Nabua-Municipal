@@ -17,6 +17,7 @@ const Members = lazy(() => import('./pages/Members'))
 const AddMember = lazy(() => import('./pages/AddMember'))
 const MemberProfile = lazy(() => import('./pages/MemberProfile'))
 const DuplicateCenter = lazy(() => import('./pages/DuplicateCenter'))
+const Subsidies = lazy(() => import('./pages/Subsidies'))
 const DataQuality = lazy(() => import('./pages/DataQuality'))
 const Imports = lazy(() => import('./pages/Imports'))
 const AuditLogs = lazy(() => import('./pages/AuditLogs'))
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/members" element={<Members />} />
           <Route path="/members/new" element={<RequireRole roles={['ENCODER', 'ADMINISTRATOR', 'SYSTEM_ADMIN']}><AddMember /></RequireRole>} />
           <Route path="/members/:id" element={<MemberProfile />} />
+          <Route path="/subsidies" element={<Subsidies />} />
           <Route path="/duplicates" element={<DuplicateCenter />} />
           <Route path="/data-quality" element={<DataQuality />} />
           <Route path="/imports" element={<RequireRole roles={['ADMINISTRATOR', 'SYSTEM_ADMIN']}><Imports /></RequireRole>} />

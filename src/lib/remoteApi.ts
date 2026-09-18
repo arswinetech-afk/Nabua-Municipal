@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, ManagedUser,
   OutboxItem, Person, PersonIndexRow, SystemSettings,
+  SubsidyProgram, SubsidyBeneficiary,
 } from './types'
 import type {
   ApiResult, CreatePersonResult, DuplicateComparison, ImportRow, ImportSummary, MergeOptions,
@@ -30,6 +31,8 @@ type RpcName =
   | 'fn_log_event' | 'fn_list_users' | 'fn_upsert_user' | 'fn_get_settings' | 'fn_save_settings'
   | 'fn_import_create_batch' | 'fn_import_add_rows' | 'fn_import_summary' | 'fn_import_rows'
   | 'fn_import_set_decision' | 'fn_import_set_all_decisions' | 'fn_import_commit' | 'fn_link_auth_user'
+  | 'fn_subsidy_programs' | 'fn_subsidy_upsert_program' | 'fn_subsidy_beneficiaries'
+  | 'fn_subsidy_add_beneficiary' | 'fn_subsidy_remove_beneficiary'
   | 'fn_schema_info'
 
 export class RemoteError extends Error {
@@ -356,6 +359,42 @@ export class RemoteApi implements RegistryApi {
     const res = await this.rpc<{ rows: PersonIndexRow[] }>('fn_person_index',
       { p_barangay_id: null, p_limit: limit, p_offset: offset })
     return res?.rows ?? []
+  }
+
+  async listSubsidyPrograms(): Promise<SubsidyProgram[]> {
+    const res = await this.rpc<{ rows: SubsidyProgram[] }>('fn_subsidy_programs', {})
+    return res?.rows ?? []
+  }
+
+  async upsertSubsidyProgram(input: Partial<SubsidyProgram> & { name: string }): Promise<ApiResult<SubsidyProgram>> {
+    const res = await this.rpc<{ ok: boolean; program?: SubsidyProgram; code?: string; error?: string }>(
+      'fn_subsidy_upsert_program', { p: input })
+    return res?.ok && res.program
+      ? { ok: true, data: res.program }
+      : { ok: false, code: res?.code, error: res?.error ?? 'The server refused this programme change.' }
+  }
+
+  async listSubsidyBeneficiaries(programId: string, barangayId?: string | null): Promise<SubsidyBeneficiary[]> {
+    const res = await this.rpc<{ rows: SubsidyBeneficiary[] }>('fn_subsidy_beneficiaries',
+      { p_program_id: programId, p_barangay_id: barangayId ?? null })
+    return res?.rows ?? []
+  }
+
+  async addSubsidyBeneficiary(input: {
+    program_id: string; person_id: string; barangay_id?: string | null
+    classification_code?: string | null; verified?: boolean; paper_ref?: string | null; notes?: string | null
+  }): Promise<ApiResult<SubsidyBeneficiary>> {
+    const res = await this.rpc<{ ok: boolean; beneficiary?: SubsidyBeneficiary; code?: string; error?: string }>(
+      'fn_subsidy_add_beneficiary', { p: input })
+    return res?.ok && res.beneficiary
+      ? { ok: true, data: res.beneficiary }
+      : { ok: false, code: res?.code, error: res?.error ?? 'The server refused this beneficiary.' }
+  }
+
+  async removeSubsidyBeneficiary(id: string, reason?: string | null): Promise<ApiResult<{ id: string }>> {
+    const res = await this.rpc<{ ok: boolean; code?: string; error?: string }>(
+      'fn_subsidy_remove_beneficiary', { p_id: id, p_reason: reason })
+    return res?.ok ? { ok: true, data: { id } } : { ok: false, code: res?.code, error: res?.error ?? 'Refused.' }
   }
 
   /** Pre-0011 databases only know the two-argument mirror function. */

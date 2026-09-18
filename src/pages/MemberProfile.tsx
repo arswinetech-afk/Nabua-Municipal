@@ -4,7 +4,7 @@ import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { MatchCard } from '../components/DuplicateMatch'
 import type { ApiResult, PersonDetail, PersonInput } from '../lib/api'
-import type { Barangay, Person, PersonIndexRow, PersonStatus, TransferReason } from '../lib/types'
+import { CLASSIFICATION_CODES, type Barangay, type Person, type PersonIndexRow, type PersonStatus, type TransferReason } from '../lib/types'
 import { PERSON_STATUSES } from '../lib/types'
 import type { DuplicateMatch, PersonComparable } from '../lib/duplicateEngine'
 import { normalizeDate } from '../lib/normalize'
@@ -103,6 +103,7 @@ export default function MemberProfile() {
       first_name: person.first_name, middle_name: person.middle_name ?? '', last_name: person.last_name,
       suffix: person.suffix ?? '', date_of_birth: person.date_of_birth ?? '', sex: person.sex ?? '',
       civil_status: person.civil_status ?? '', contact_number: person.contact_number ?? '',
+      classification_code: person.classification_code ?? '',
       purok: person.purok ?? '', address: person.address ?? '', remarks: person.remarks ?? '',
     })
     setEditReason('')
@@ -125,7 +126,8 @@ export default function MemberProfile() {
       first_name: editForm.first_name, middle_name: editForm.middle_name || null, last_name: editForm.last_name,
       suffix: editForm.suffix || null, date_of_birth: normalizeDate(editForm.date_of_birth) || null,
       sex: editForm.sex || null, civil_status: editForm.civil_status || null,
-      contact_number: editForm.contact_number || null, purok: editForm.purok || null,
+      contact_number: editForm.contact_number || null, classification_code: editForm.classification_code || null,
+      purok: editForm.purok || null,
       address: editForm.address || null, remarks: editForm.remarks || null,
     }
     const res: ApiResult<Person> = await api.updatePerson(person.id, patch, editReason.trim())
@@ -599,6 +601,11 @@ export default function MemberProfile() {
           </Field>
           <Field label="Civil status">
             <input className="input" value={editForm.civil_status ?? ''} onChange={(e) => setEditForm({ ...editForm, civil_status: e.target.value })} />
+          </Field>
+          <Field label="Classification">
+            <select className="input" value={editForm.classification_code ?? ''} onChange={(e) => setEditForm({ ...editForm, classification_code: e.target.value })}>
+              {CLASSIFICATION_CODES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+            </select>
           </Field>
           <Field label="Contact number">
             <input className="input" value={editForm.contact_number ?? ''} onChange={(e) => setEditForm({ ...editForm, contact_number: e.target.value })} />

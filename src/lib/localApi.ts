@@ -19,6 +19,7 @@ import seed from '../data/seed.json'
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, Household, ManagedUser,
   OutboxItem, Person, PersonIndexRow, PersonStatus, SystemSettings,
+  SubsidyProgram, SubsidyBeneficiary,
 } from './types'
 import type {
   ApiResult, CreatePersonResult, DuplicateComparison, ImportRow, ImportSummary, MergeOptions,
@@ -79,6 +80,8 @@ type LocalDB = {
   users: Array<ManagedUser & { password_hash: string }>
   settings: SystemSettings
   importBatches: ImportBatchRecord[]
+  programs: SubsidyProgram[]
+  beneficiaries: SubsidyBeneficiary[]
   outbox: OutboxItem[]
   lastSyncAt: string | null
 }
@@ -211,6 +214,8 @@ export class LocalApi implements RegistryApi {
           province: 'Camarines Sur',
         },
         importBatches: [],
+        programs: [],
+        beneficiaries: [],
         outbox: [],
         lastSyncAt: null,
       }
@@ -383,6 +388,8 @@ export class LocalApi implements RegistryApi {
         province: 'Camarines Sur',
       },
       importBatches: [],
+        programs: [],
+        beneficiaries: [],
       outbox: [],
       lastSyncAt: null,
     }
@@ -980,6 +987,7 @@ export class LocalApi implements RegistryApi {
       status,
       remarks: collide ? 'Verified as a different person with identical details — queued for supervisor review.'
         : input.remarks ?? null,
+      classification_code: input.classification_code ?? null,
       household_id: null,
       created_at: nowIso(),
       updated_at: nowIso(),
@@ -1739,10 +1747,12 @@ export class LocalApi implements RegistryApi {
   }
 
   /** Used by the sync layer when it mirrors remote data locally. */
-  replaceMirror(payload: { barangays?: Barangay[]; persons?: Person[]; cases?: DuplicateCase[] }) {
+  replaceMirror(payload: { barangays?: Barangay[]; persons?: Person[]; cases?: DuplicateCase[]; programs?: SubsidyProgram[]; beneficiaries?: SubsidyBeneficiary[] }) {
     if (payload.barangays) this.db.barangays = payload.barangays
     if (payload.persons) this.db.persons = payload.persons
     if (payload.cases) this.db.cases = payload.cases
+    if (payload.programs) this.db.programs = payload.programs
+    if (payload.beneficiaries) this.db.beneficiaries = payload.beneficiaries
     this.persist()
   }
 
@@ -1766,6 +1776,94 @@ export class LocalApi implements RegistryApi {
   setLastSync(at: string | null) {
     this.db.lastSyncAt = at
     this.persist()
+  }
+
+  // ------------------------------------------------------------- subsidies
+  async listSubsidyPrograms(): Promise<SubsidyProgram[]> {
+    return this.db.programs.map((p) => ({
+      ...p,
+      beneficiaries: this.db.beneficiaries.filter((b) => b.program_id === p.id).length,
+      verified: this.db.beneficiaries.filter((b) => b.program_id === p.id && b.verified).length,
+    }))
+  }
+
+  async upsertSubsidyProgram(input: Partial<SubsidyProgram> & { name: string }): Promise<ApiResult<SubsidyProgram>> {
+    const denial = this.require(['ADMINISTRATOR', 'SYSTEM_ADMIN'])
+    if (denial) return denial
+    let row: SubsidyProgram
+    if (input.id) {
+      const found = this.db.programs.find((x) => x.id === input.id)
+      if (!found) return { ok: false, code: 'NOT_FOUND', error: 'Programme not found on this device.' }
+      Object.assign(found, {
+        name: input.name || found.name,
+        description: input.description !== undefined ? input.description : found.description,
+        period_start: input.period_start !== undefined ? input.period_start : found.period_start,
+        period_end: input.period_end !== undefined ? input.period_end : found.period_end,
+        active: input.active !== undefined ? input.active : found.active,
+      })
+      row = found
+      this.audit('UPDATED', 'SUBSIDY_PROGRAMS', row.id, row.name, row, null)
+    } else {
+      row = {
+        id: uid('sp'), name: input.name, description: input.description ?? null,
+        period_start: input.period_start ?? null, period_end: input.period_end ?? null,
+        active: input.active ?? true, created_at: nowIso(),
+      }
+      this.db.programs.push(row)
+      this.audit('CREATED', 'SUBSIDY_PROGRAMS', row.id, row.name, row, null)
+    }
+    this.persist()
+    return { ok: true, data: row }
+  }
+
+  async listSubsidyBeneficiaries(programId: string, barangayId?: string | null): Promise<SubsidyBeneficiary[]> {
+    return this.db.beneficiaries
+      .filter((b) => b.program_id === programId && (!barangayId || b.barangay_id === barangayId))
+      .map((b) => {
+        const person = this.db.persons.find((x) => x.id === b.person_id)
+        return {
+          ...b,
+          person_name: person ? fullName(person) : undefined,
+          reference_no: person?.reference_no,
+          person_barangay: person ? (this.db.barangays.find((x) => x.id === person.barangay_id)?.name ?? '') : undefined,
+        }
+      })
+      .sort((a, b) => (a.person_name ?? '').localeCompare(b.person_name ?? '', 'en'))
+  }
+
+  async addSubsidyBeneficiary(input: {
+    program_id: string; person_id: string; barangay_id?: string | null
+    classification_code?: string | null; verified?: boolean; paper_ref?: string | null; notes?: string | null
+  }): Promise<ApiResult<SubsidyBeneficiary>> {
+    const denial = this.require(['ENCODER', 'ADMINISTRATOR', 'SYSTEM_ADMIN'])
+    if (denial) return denial
+    const person = this.db.persons.find((x) => x.id === input.person_id)
+    if (!person) return { ok: false, code: 'NOT_FOUND', error: 'That member is not in the registry on this device. Re-sync and try again.' }
+    if (this.db.beneficiaries.some((b) => b.program_id === input.program_id && b.person_id === input.person_id)) {
+      return { ok: false, code: 'ALREADY_LISTED', error: `${fullName(person)} is already on this programme list.` }
+    }
+    const row: SubsidyBeneficiary = {
+      id: uid('sb'), program_id: input.program_id, person_id: person.id,
+      barangay_id: input.barangay_id ?? person.barangay_id,
+      classification_code: input.classification_code ?? person.classification_code ?? null,
+      verified: input.verified ?? false, paper_ref: input.paper_ref ?? null,
+      notes: input.notes ?? null, created_at: nowIso(),
+    }
+    this.db.beneficiaries.push(row)
+    this.persist()
+    this.audit('CREATED', 'SUBSIDY_BENEFICIARIES', row.id, fullName(person), row, null)
+    return { ok: true, data: row }
+  }
+
+  async removeSubsidyBeneficiary(id: string, reason?: string | null): Promise<ApiResult<{ id: string }>> {
+    const denial = this.require(['ADMINISTRATOR', 'SYSTEM_ADMIN'])
+    if (denial) return denial
+    const row = this.db.beneficiaries.find((b) => b.id === id)
+    if (!row) return { ok: false, code: 'NOT_FOUND', error: 'Beneficiary row not found on this device.' }
+    this.db.beneficiaries = this.db.beneficiaries.filter((b) => b.id !== id)
+    this.persist()
+    this.audit('DELETED', 'SUBSIDY_BENEFICIARIES', row.id, row.person_name ?? row.person_id, row, reason ?? null)
+    return { ok: true, data: { id } }
   }
 
   subscribe(listener: () => void) {

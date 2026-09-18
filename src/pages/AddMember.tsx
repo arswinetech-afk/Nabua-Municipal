@@ -15,7 +15,7 @@ import { PageHeader } from '../components/Layout'
 import { LiveDuplicateIndicator, MatchCard } from '../components/DuplicateMatch'
 import type { DuplicateMatch, MatchBand, PersonComparable } from '../lib/duplicateEngine'
 import { BAND_META } from '../lib/duplicateEngine'
-import type { Barangay, PersonIndexRow } from '../lib/types'
+import { CLASSIFICATION_CODES, type Barangay, type PersonIndexRow } from '../lib/types'
 import { cn, formatDate, relativeTime } from '../lib/utils'
 import { fullName, maskContact } from '../lib/normalize'
 import { normalizeDate } from '../lib/normalize'
@@ -33,6 +33,7 @@ type FormState = {
   sex: '' | 'MALE' | 'FEMALE'
   civil_status: string
   contact_number: string
+  classification_code: string
   purok: string
   address: string
   barangay_id: string
@@ -41,7 +42,7 @@ type FormState = {
 
 const EMPTY: FormState = {
   first_name: '', middle_name: '', last_name: '', suffix: '', date_of_birth: '', sex: '',
-  civil_status: '', contact_number: '', purok: '', address: '', barangay_id: '', remarks: '',
+  civil_status: '', contact_number: '', classification_code: '', purok: '', address: '', barangay_id: '', remarks: '',
 }
 
 const CIVIL = ['SINGLE', 'MARRIED', 'WIDOWED', 'SEPARATED', 'ANNULLED', 'UNKNOWN']
@@ -190,6 +191,7 @@ export default function AddMember() {
       sex: form.sex || null,
       civil_status: form.civil_status || null,
       contact_number: form.contact_number || null,
+      classification_code: form.classification_code || null,
       purok: form.purok || null,
       address: form.address || null,
       barangay_id: form.barangay_id || null,
@@ -412,6 +414,11 @@ export default function AddMember() {
                 </Field>
                 <Field label="Purok / Sitio">
                   <input className="input" value={form.purok} onChange={(e) => update({ purok: e.target.value })} placeholder="Purok 3" />
+                </Field>
+                <Field label="Classification" hint="From the barangay's validated list — used for subsidy programmes.">
+                  <select className="input" value={form.classification_code} onChange={(e) => update({ classification_code: e.target.value })}>
+                    {CLASSIFICATION_CODES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+                  </select>
                 </Field>
                 <Field label="Contact number" hint="Used as an extra matching signal.">
                   <input className="input" value={form.contact_number} onChange={(e) => update({ contact_number: e.target.value })} placeholder="09171234567" />

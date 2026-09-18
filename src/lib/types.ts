@@ -39,6 +39,48 @@ export interface Barangay {
   last_updated?: string | null
 }
 
+export type SubsidyProgram = {
+  id: string
+  name: string
+  description?: string | null
+  period_start?: string | null
+  period_end?: string | null
+  active: boolean
+  created_at?: string
+  beneficiaries?: number
+  verified?: number
+}
+
+export type SubsidyBeneficiary = {
+  id: string
+  program_id: string
+  person_id: string
+  barangay_id?: string | null
+  classification_code?: string | null
+  verified: boolean
+  paper_ref?: string | null
+  notes?: string | null
+  created_at?: string
+  person_name?: string
+  reference_no?: string
+  person_barangay?: string
+  added_by_name?: string | null
+}
+
+/**
+ * Neutral sector classifications for paper-list cross-checks. Deliberately
+ * contains NO political or voting category: see docs/GO_LIVE.md §10.
+ */
+export const CLASSIFICATION_CODES: Array<{ code: string; label: string }> = [
+  { code: '', label: 'No classification' },
+  { code: '4PS', label: '4Ps beneficiary' },
+  { code: 'SR', label: 'Senior citizen' },
+  { code: 'PWD', label: 'Person with disability' },
+  { code: 'SP', label: 'Solo parent' },
+  { code: 'IND', label: 'Indigent — barangay-validated list' },
+  { code: 'FW', label: 'Fisherman / farmer sector' },
+]
+
 export interface Person {
   id: string
   reference_no: string
@@ -56,6 +98,7 @@ export interface Person {
   barangay_name?: string | null
   status: PersonStatus
   remarks?: string | null
+  classification_code?: string | null
   household_id?: string | null
   household_name?: string | null
   merged_into?: string | null

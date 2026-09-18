@@ -21,7 +21,7 @@ import type {
 } from './api'
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, ManagedUser, OutboxItem,
-  Person, PersonIndexRow, SystemSettings,
+  Person, PersonIndexRow, SystemSettings, SubsidyProgram, SubsidyBeneficiary,
 } from './types'
 import type { DuplicateMatch, PersonComparable } from './duplicateEngine'
 
@@ -29,6 +29,7 @@ type Operation =
   | 'createPerson' | 'updatePerson' | 'transferBarangay' | 'setPersonStatus'
   | 'openDuplicateCase' | 'resolveDuplicateCase' | 'mergePersons'
   | 'upsertUser' | 'upsertBarangay' | 'saveSettings' | 'logEvent'
+  | 'upsertSubsidyProgram' | 'addSubsidyBeneficiary' | 'removeSubsidyBeneficiary'
 
 export type SyncEvent = {
   type: 'queued' | 'pushed' | 'conflict' | 'failed' | 'online' | 'offline' | 'mirrored'
@@ -423,7 +424,17 @@ export class ApiClient implements RegistryApi {
         barangay_id: p.barangay_id, barangay_name: p.barangay_name, status: p.status, remarks: null,
         household_id: null, created_at: p.updated_at, updated_at: p.updated_at,
       })) as Person[]
-      this.local.replaceMirror({ persons: mirror, barangays })
+      let programs: SubsidyProgram[] = []
+      let beneficiaries: SubsidyBeneficiary[] = []
+      try {
+        programs = await this.remote.listSubsidyPrograms()
+        for (const prog of programs.slice(0, 25)) {
+          beneficiaries.push(...await this.remote.listSubsidyBeneficiaries(prog.id))
+        }
+      } catch {
+        /* subsidy mirror is best-effort on databases without 0012 */
+      }
+      this.local.replaceMirror({ persons: mirror, barangays, programs, beneficiaries })
       const existingCases = await this.local.listDuplicateCases({ status: 'ALL', limit: 200 })
       if (existingCases.total === 0 && cases.length) {
         for (const c of cases) {
@@ -457,6 +468,44 @@ export class ApiClient implements RegistryApi {
 
   dashboardStats(): Promise<DashboardStats> {
     return this.read(this.remote ? () => this.remote!.dashboardStats() : null, () => this.local.dashboardStats())
+  }
+
+  // ------------------------------------------------------------- subsidies
+  listSubsidyPrograms(): Promise<SubsidyProgram[]> {
+    return this.read(this.remote ? () => this.remote!.listSubsidyPrograms() : null, () => this.local.listSubsidyPrograms())
+  }
+
+  upsertSubsidyProgram(input: Partial<SubsidyProgram> & { name: string }): Promise<ApiResult<SubsidyProgram>> {
+    return this.write(
+      'upsertSubsidyProgram', { ...input }, `Subsidy programme: ${input.name}`,
+      () => Promise.resolve(this.local.upsertSubsidyProgram(input)),
+      this.remote ? () => this.remote!.upsertSubsidyProgram(input) : null,
+    )
+  }
+
+  listSubsidyBeneficiaries(programId: string, barangayId?: string | null): Promise<SubsidyBeneficiary[]> {
+    return this.read(
+      this.remote ? () => this.remote!.listSubsidyBeneficiaries(programId, barangayId) : null,
+      () => this.local.listSubsidyBeneficiaries(programId, barangayId))
+  }
+
+  addSubsidyBeneficiary(input: {
+    program_id: string; person_id: string; barangay_id?: string | null
+    classification_code?: string | null; verified?: boolean; paper_ref?: string | null; notes?: string | null
+  }): Promise<ApiResult<SubsidyBeneficiary>> {
+    return this.write(
+      'addSubsidyBeneficiary', { ...input }, 'Subsidy list addition',
+      () => Promise.resolve(this.local.addSubsidyBeneficiary(input)),
+      this.remote ? () => this.remote!.addSubsidyBeneficiary(input) : null,
+    )
+  }
+
+  removeSubsidyBeneficiary(id: string, reason?: string | null): Promise<ApiResult<{ id: string }>> {
+    return this.write(
+      'removeSubsidyBeneficiary', { id, reason }, 'Removed from subsidy list',
+      () => Promise.resolve(this.local.removeSubsidyBeneficiary(id, reason)),
+      this.remote ? () => this.remote!.removeSubsidyBeneficiary(id, reason) : null,
+    )
   }
 
   searchPersons(query: SearchQuery): Promise<SearchResult> {
@@ -972,6 +1021,21 @@ export class ApiClient implements RegistryApi {
       }
       case 'upsertUser': {
         const res = await remote.upsertUser(p.input as never)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
+        return 'ok'
+      }
+      case 'upsertSubsidyProgram': {
+        const res = await remote.upsertSubsidyProgram(p.input as never)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
+        return 'ok'
+      }
+      case 'addSubsidyBeneficiary': {
+        const res = await remote.addSubsidyBeneficiary(p.input as never)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
+        return 'ok'
+      }
+      case 'removeSubsidyBeneficiary': {
+        const res = await remote.removeSubsidyBeneficiary((p.input as { id: string }).id, (p.input as { reason?: string }).reason)
         if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }

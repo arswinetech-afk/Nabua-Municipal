@@ -114,6 +114,22 @@ const page2 = (await db.query(`select jsonb_array_length(fn_person_index(p_limit
 const page9 = (await db.query(`select jsonb_array_length(fn_person_index(p_limit => 50, p_offset => 150) -> 'rows') as n`)).rows[0]?.n
 check('the mirror pages without gaps or overruns', Number(page1) === 50 && Number(page2) === 50 && Number(page9) === 10, `(${page1}/${page2}/${page9})`)
 
+// MIGRATION 0012: subsidy programmes + beneficiary lists; a member can be
+// listed once per programme, and only encoders/admins may encode.
+const prog = (await db.query(`select fn_subsidy_upsert_program($1) as r`,
+  [JSON.stringify({ name: 'Bigasan 2026', description: 'Rice subsidy', active: true })])).rows[0]?.r
+check('an administrator can create a subsidy programme', prog?.ok === true, JSON.stringify(prog?.program?.name ?? prog))
+const pid = prog?.program?.id
+const personId = (await db.query(`select id from persons limit 1`)).rows[0]?.id
+const add1 = (await db.query(`select fn_subsidy_add_beneficiary($1) as r`,
+  [JSON.stringify({ program_id: pid, person_id: personId, verified: true, paper_ref: 'Brgy list row 1' })])).rows[0]?.r
+const add2 = (await db.query(`select fn_subsidy_add_beneficiary($1) as r`,
+  [JSON.stringify({ program_id: pid, person_id: personId })])).rows[0]?.r
+check('a member joins a programme list once', add1?.ok === true && add2?.ok === false && add2?.code === 'ALREADY_LISTED',
+  JSON.stringify(add2?.code ?? add2))
+const listed = (await db.query(`select jsonb_array_length(fn_subsidy_beneficiaries($1::uuid) -> 'rows') as n`, [pid])).rows[0]?.n
+check('the programme list reads back with names', Number(listed) === 1, `(${listed})`)
+
 // ---------------------------------------------------------------------
 // REGRESSION (field report 2026-09-15): fn_link_auth_user() must link an
 // authenticated Supabase account to the profile carrying the SAME email —

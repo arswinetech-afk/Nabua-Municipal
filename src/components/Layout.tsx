@@ -7,8 +7,7 @@ import { useApp } from '../state/AppProvider'
 import { ROLE_LABEL, type UserRole } from '../lib/types'
 import {
   Badge, Button, IconAlert, IconChart, IconCloud, IconCog, IconCopy, IconDashboard, IconLogout, IconMap,
-  IconMenu, IconScroll, IconShieldCheck, IconUpload, IconUsers, IconWifiOff, IconClose, IconRefresh,
-} from './ui'
+  IconMenu, IconScroll, IconShieldCheck, IconUpload, IconUsers, IconWifiOff, IconClose, IconRefresh, IconGift } from './ui'
 
 type NavItem = { to: string; label: string; icon: ReactNode; roles?: UserRole[]; end?: boolean }
 
@@ -16,6 +15,7 @@ const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: <IconDashboard />, end: true },
   { to: '/barangays', label: 'Barangays', icon: <IconMap /> },
   { to: '/members', label: 'Members', icon: <IconUsers /> },
+  { to: '/subsidies', label: 'Subsidies', icon: <IconGift /> },
   { to: '/duplicates', label: 'Duplicate Center', icon: <IconCopy /> },
   { to: '/data-quality', label: 'Data Quality', icon: <IconShieldCheck /> },
   { to: '/imports', label: 'Imports', icon: <IconUpload />, roles: ['ADMINISTRATOR', 'SYSTEM_ADMIN'] },
