@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { cn, formatDateTime, initials, relativeTime } from '../lib/utils'
-import { applyAppUpdate, useAppUpdate } from '../lib/pwa'
+import { applyAppUpdate, useAppUpdate, APP_BUILD } from '../lib/pwa'
 import { useApp } from '../state/AppProvider'
 import { ROLE_LABEL, type UserRole } from '../lib/types'
 import {
@@ -122,6 +122,7 @@ export default function Layout() {
         <div className="border-t border-white/10 px-4 py-3 text-[11px] text-gov-100/70">
           <p className="font-semibold text-gov-100">One person = one master record</p>
           <p className="mt-1">Duplicate prevention is enforced in the database.</p>
+          <p className="mono mt-2 text-[10px] text-gov-100/50">Build {APP_BUILD}</p>
         </div>
       </aside>
 
@@ -137,6 +138,9 @@ export default function Layout() {
               </button>
             </div>
             <NavLinks onNavigate={() => setDrawer(false)} />
+            <div className="mt-auto px-4 pb-4 pt-6 text-[10px] text-white/40">
+              <span className="mono">Build {APP_BUILD}</span>
+            </div>
           </div>
         </div>
       )}
