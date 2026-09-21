@@ -61,7 +61,7 @@ function fieldForKey(k: string): string | null {
   if (k === 'extname' || k === 'ext' || k === 'suffix') return 'suffix'
   if (k === 'zonestreet' || k === 'zone' || k === 'sitio' || k === 'purok') return 'purok'
   if (k === 'contactno' || k === 'contact' || k === 'mobile' || k === 'phone') return 'contact_number'
-  if (k === 'bdate' || k === 'dateofbirth' || k === 'birthdate' || k === 'dob') return 'date_of_birth'
+  if (k.startsWith('bdate') || k === 'dateofbirth' || k === 'birthdate' || k === 'dob' || k.includes('mmdyyyy')) return 'date_of_birth'
   if (k === 'sex' || k === 'gender') return 'sex'
   if (k === 'civilstat' || k === 'civilstatus' || k === 'maritalstatus') return 'civil_status'
   if (k === 'occupation' || k === 'job' || k === 'trabaho') return 'occupation'
