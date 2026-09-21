@@ -744,7 +744,7 @@ export class RemoteApi implements RegistryApi {
       try {
         res = await this.rpc<CommitChunk>(
           'fn_import_commit',
-          { p_batch_id: batchId, p_default_barangay: defaultBarangayId ?? null, p_max_rows: 100 },
+          { p_batch_id: batchId, p_default_barangay: defaultBarangayId ?? null, p_max_rows: 60 },
         )
       } catch (err) {
         const e = parseDbError(err)
