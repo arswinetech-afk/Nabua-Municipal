@@ -339,14 +339,14 @@ check('the only-undecided normalisation imports the rest and preserves manual sk
 
 // MIGRATION 0018: commit runs in resumable chunks
 const chunk1 = (await db.query(
-  `select fn_import_commit($1, null, 60) as r`, [bid])).rows[0]?.r
+  `select fn_import_commit($1, null, 1) as r`, [bid])).rows[0]?.r
 const chunk2 = (await db.query(
-  `select fn_import_commit($1, null, 60) as r`, [bid])).rows[0]?.r
+  `select fn_import_commit($1, null, 500) as r`, [bid])).rows[0]?.r
 const closed = (await db.query(
   `select status, imported_rows from import_batches where id = $1`, [bid])).rows[0]
 check('the commit processes chunks and closes the batch only when nothing remains',
   chunk1?.ok === true && chunk1?.done === false
-  && Number(chunk1?.imported) + Number(chunk1?.duplicates_parked) + Number(chunk1?.skipped) === 60
+  && Number(chunk1?.imported) + Number(chunk1?.duplicates_parked) + Number(chunk1?.skipped) === 1
   && Number(chunk1?.remaining) > 0
   && chunk2?.ok === true && chunk2?.done === true && Number(chunk2?.remaining) === 0
   && closed?.status === 'IMPORTED'

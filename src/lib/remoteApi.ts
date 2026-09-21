@@ -676,8 +676,8 @@ export class RemoteApi implements RegistryApi {
           data: {
             batch_id: res.batch_id,
             warning:
-              'All rows are staged. The in-file duplicate pass could not finish in time on the server; ' +
-              'it will run again when you commit the batch. Twins inside the file may appear unflagged until then.',
+              'All rows are staged and ready for review. The extra in-file twin pass did not finish in time; ' +
+              'twins are still caught when you commit, because every row is re-checked against the live registry.',
           },
         }
       }
