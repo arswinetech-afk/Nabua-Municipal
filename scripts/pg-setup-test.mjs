@@ -337,6 +337,15 @@ check('the only-undecided normalisation imports the rest and preserves manual sk
   undNorm?.ok === true && Number(pendLeft) === 0 && Number(twinsKept) >= 1,
   JSON.stringify({ undNorm, pendLeft, twinsKept }))
 
+// MIGRATION 0021: an impossible birth date must not kill a commit chunk
+const badRow = (await db.query(
+  `update import_rows set normalized = jsonb_set(normalized, '{date_of_birth}', '"1899-12-30"')
+    where id = (select id from import_rows
+                 where batch_id = $1 and decision = 'IMPORT' and imported_person_id is null
+                 order by row_no limit 1)
+    returning id`, [bid])).rows[0]?.id
+check('a row was planted with an Excel-epoch birth date', badRow != null, String(badRow))
+
 // MIGRATION 0018: commit runs in resumable chunks
 const chunk1 = (await db.query(
   `select fn_import_commit($1, null, 1) as r`, [bid])).rows[0]?.r
@@ -344,6 +353,14 @@ const chunk2 = (await db.query(
   `select fn_import_commit($1, null, 500) as r`, [bid])).rows[0]?.r
 const closed = (await db.query(
   `select status, imported_rows from import_batches where id = $1`, [bid])).rows[0]
+const strippedRow = (await db.query(
+  `select imported_person_id is not null as imp, 'IMPLAUSIBLE_DOB' = any(issues) as chip,
+          validation->>'dob_removed' as removed
+    from import_rows where id = $1`, [badRow])).rows[0]
+check('the impossible-dob row imported without its date instead of killing the chunk',
+  strippedRow?.imp === true && strippedRow?.chip === true && strippedRow?.removed === '1899-12-30',
+  JSON.stringify(strippedRow))
+
 check('the commit processes chunks and closes the batch only when nothing remains',
   chunk1?.ok === true && chunk1?.done === false
   && Number(chunk1?.imported) + Number(chunk1?.duplicates_parked) + Number(chunk1?.skipped) === 1
