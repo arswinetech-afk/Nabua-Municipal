@@ -346,6 +346,17 @@ const badRow = (await db.query(
     returning id`, [bid])).rows[0]?.id
 check('a row was planted with an Excel-epoch birth date', badRow != null, String(badRow))
 
+// MIGRATION 0022: shared context without shared names is not a duplicate
+const gate = (await db.query(`select fn_score_json(
+  '{"first_name":"MARIA","last_name":"SANTOS","date_of_birth":"1980-05-05","sex":"FEMALE","address":"P1 SITIO A","barangay_name":"TANDAAY"}'::jsonb,
+  '{"first_name":"JORGE","last_name":"DELACRUZ","date_of_birth":"1980-05-05","sex":"FEMALE","address":"P1 SITIO A","barangay_name":"TANDAAY"}'::jsonb) as r`)).rows[0]?.r
+const gateSame = (await db.query(`select fn_score_json(
+  '{"first_name":"MARIA","last_name":"SANTOS","date_of_birth":"1980-05-05","sex":"FEMALE","address":"P1 SITIO A","barangay_name":"TANDAAY"}'::jsonb,
+  '{"first_name":"MARIA","last_name":"SANTOS","date_of_birth":"1980-05-05","sex":"FEMALE","address":"P1 SITIO A","barangay_name":"TANDAAY"}'::jsonb) as r`)).rows[0]?.r
+check('different names with shared sex/address/dob stay out of the duplicate queue',
+  Number(gate?.score) <= 30 && Number(gateSame?.score) >= 90,
+  JSON.stringify({ gate: gate?.score, gateSame: gateSame?.score }))
+
 // MIGRATION 0018: commit runs in resumable chunks
 const chunk1 = (await db.query(
   `select fn_import_commit($1, null, 1) as r`, [bid])).rows[0]?.r
