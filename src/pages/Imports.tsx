@@ -90,6 +90,7 @@ export default function Imports() {
   const [parseError, setParseError] = useState<string | null>(null)
   const [blockInfo, setBlockInfo] = useState<BlockSection[] | null>(null)
   const [blockBarangay, setBlockBarangay] = useState<string | null>(null)
+  const [stageMsg, setStageMsg] = useState('')
 
   const canImport = user && ['ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
 
@@ -237,8 +238,11 @@ export default function Imports() {
   const createBatch = async () => {
     if (!file) return
     setBusy(true)
+    setStageMsg('')
     try {
-      const res = await api.importCreateBatch(file.name, normalised, defaultBarangay || null)
+      const res = await api.importCreateBatch(file.name, normalised, defaultBarangay || null, (done, total) => {
+        setStageMsg(`Staging rows ${done} of ${total} — every row is being scored against the registry…`)
+      })
       if (!res.ok) {
         toast.push({ tone: 'error', title: 'Batch could not be staged', message: res.error })
         setBusy(false)
@@ -659,6 +663,9 @@ export default function Imports() {
                 Check against the registry <IconArrowRight />
               </Button>
             </div>
+            {stageMsg && (
+              <p className="border-t border-line px-4 py-2 text-[11px] text-ink-soft">{stageMsg}</p>
+            )}
           </Card>
           <Card className="card-pad">
             <h2 className="section-title">What happens next</h2>

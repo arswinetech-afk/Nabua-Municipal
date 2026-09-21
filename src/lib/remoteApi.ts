@@ -636,18 +636,28 @@ export class RemoteApi implements RegistryApi {
   }
 
   // ------------------------------------------------------------------ import
-  async importCreateBatch(fileName: string, rows: PersonInput[], defaultBarangayId?: string | null): Promise<ApiResult<{ batch_id: string }>> {
+  async importCreateBatch(
+    fileName: string, rows: PersonInput[], defaultBarangayId?: string | null,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<ApiResult<{ batch_id: string }>> {
     try {
-      // The first chunk creates the batch; the rest stream in so memory stays flat.
-      const first = rows.slice(0, 400)
+      // The first chunk creates the batch; the rest stream in. Chunks stay
+      // small because the server scores every row against the registry
+      // inside one statement — FIELD REPORT 2026-09-21: 400-row statements
+      // hit the database statement timeout at ~1,000 rows ("canceling
+      // statement due to statement timeout"). 60 rows stays well under it.
+      const CHUNK = 60
+      const first = rows.slice(0, CHUNK)
       const res = await this.rpc<{ ok: boolean; batch_id: string; error?: string }>('fn_import_create_batch', {
         p_file_name: fileName,
         p_mapping: { default_barangay_id: defaultBarangayId ?? null },
         p_rows: first,
       })
       if (!res?.ok) return { ok: false, error: res?.error ?? 'Could not create the import batch.' }
-      for (let i = 400; i < rows.length; i += 400) {
-        await this.rpc('fn_import_add_rows', { p_batch_id: res.batch_id, p_rows: rows.slice(i, i + 400) })
+      onProgress?.(first.length, rows.length)
+      for (let i = CHUNK; i < rows.length; i += CHUNK) {
+        await this.rpc('fn_import_add_rows', { p_batch_id: res.batch_id, p_rows: rows.slice(i, i + CHUNK) })
+        onProgress?.(Math.min(i + CHUNK, rows.length), rows.length)
       }
       return { ok: true, data: { batch_id: res.batch_id } }
     } catch (err) {

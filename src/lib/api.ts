@@ -217,7 +217,7 @@ export interface RegistryApi {
   mergePersons(keepId: string, mergeId: string, options: MergeOptions): Promise<ApiResult<{ message: string }>>
 
   // ---- import
-  importCreateBatch(fileName: string, rows: PersonInput[], defaultBarangayId?: string | null): Promise<ApiResult<{ batch_id: string }>>
+  importCreateBatch(fileName: string, rows: PersonInput[], defaultBarangayId?: string | null, onProgress?: (done: number, total: number) => void): Promise<ApiResult<{ batch_id: string }>>
   importSummary(batchId: string): Promise<ImportSummary | null>
   importRows(batchId: string, filter?: {
     severity?: string; decision?: string; limit?: number; offset?: number

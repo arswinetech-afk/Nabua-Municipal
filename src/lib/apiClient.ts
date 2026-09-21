@@ -755,10 +755,13 @@ export class ApiClient implements RegistryApi {
   }
 
   // ------------------------------------------------------------------ import
-  importCreateBatch(fileName: string, rows: PersonInput[], defaultBarangayId?: string | null): Promise<ApiResult<{ batch_id: string }>> {
+  importCreateBatch(
+    fileName: string, rows: PersonInput[], defaultBarangayId?: string | null,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<ApiResult<{ batch_id: string }>> {
     return this.read(
       this.remote && this.usingServer
-        ? () => this.remote!.importCreateBatch(fileName, rows, defaultBarangayId)
+        ? () => this.remote!.importCreateBatch(fileName, rows, defaultBarangayId, onProgress)
         : null,
       () => this.local.importCreateBatch(fileName, rows, defaultBarangayId),
     )
