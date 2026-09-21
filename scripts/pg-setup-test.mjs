@@ -326,6 +326,16 @@ const stillImport = (await db.query(
 check('the duplicates-only bulk skip touches twins and leaves clean rows importing',
   dupSkip?.ok === true && Number(dupSkip?.updated) >= 1 && Number(stillImport) > 0,
   JSON.stringify({ dupSkip, stillImport }))
+const undNorm = (await db.query(
+  `select fn_import_set_all_decisions($1, null, 'IMPORT', false, true) as r`, [bid])).rows[0]?.r
+const pendLeft = (await db.query(
+  `select count(*)::int n from import_rows where batch_id = $1 and decision = 'PENDING'`, [bid])).rows[0]?.n
+const twinsKept = (await db.query(
+  `select count(*)::int n from import_rows
+    where batch_id = $1 and decision = 'SKIP' and 'DUPLICATE_IN_FILE' = any(issues)`, [bid])).rows[0]?.n
+check('the only-undecided normalisation imports the rest and preserves manual skips',
+  undNorm?.ok === true && Number(pendLeft) === 0 && Number(twinsKept) >= 1,
+  JSON.stringify({ undNorm, pendLeft, twinsKept }))
 
 console.log(
   failures === 0

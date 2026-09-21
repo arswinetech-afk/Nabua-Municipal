@@ -1572,7 +1572,8 @@ export class LocalApi implements RegistryApi {
   }
 
   async importSetAllDecisions(
-    batchId: string, severity: string | null, decision: string, duplicatesOnly = false,
+    batchId: string, severity: string | null, decision: string,
+    duplicatesOnly = false, onlyUndecided = false,
   ): Promise<ApiResult<{ updated?: number }>> {
     const denial = this.require(['ADMINISTRATOR', 'SYSTEM_ADMIN'])
     if (denial) return denial
@@ -1581,14 +1582,17 @@ export class LocalApi implements RegistryApi {
     let n = 0
     for (const row of batch.rows) {
       if (severity && row.severity !== severity) continue
-      if (decision === 'IMPORT' && row.severity === 'ERROR') continue
+      if (decision === 'IMPORT'
+        && (row.severity === 'ERROR' || row.band === 'VERY_LIKELY')) continue
       if (duplicatesOnly && !((row.issues ?? []).includes('DUPLICATE_IN_FILE') || row.match_score != null)) continue
+      if (onlyUndecided && row.decision !== 'PENDING') continue
       row.decision = decision as ImportRow['decision']
       n += 1
     }
     this.persist()
     return { ok: true, data: { updated: n } }
   }
+
 
 
 

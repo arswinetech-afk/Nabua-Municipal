@@ -269,7 +269,10 @@ export default function Imports() {
     if (step !== 9 || !batchId || normalisedBatches.current.has(batchId)) return
     normalisedBatches.current.add(batchId)
     void (async () => {
-      const res = await api.importSetAllDecisions(batchId, 'OK', 'IMPORT')
+      // field directive 2026-09-21: missing contact / address / sex details no
+      // longer hold a row back — normalise everything still undecided except
+      // blocked rows and very-likely clashes, without touching manual choices
+      const res = await api.importSetAllDecisions(batchId, null, 'IMPORT', false, true)
       if (res.ok && (res.data.updated ?? 0) > 0) await refreshRowsRef.current()
     })()
   }, [step, batchId, api])
