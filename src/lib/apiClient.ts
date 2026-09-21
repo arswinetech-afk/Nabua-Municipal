@@ -236,9 +236,32 @@ export class ApiClient implements RegistryApi {
     remoteFn: (() => Promise<ApiResult<T>>) | null,
   ): Promise<ApiResult<T>> {
     if (remoteFn && this.usingServer) {
-      const res = await remoteFn()
+      let res: ApiResult<T>
+      try {
+        res = await remoteFn()
+      } catch (err) {
+        // A remote layer must never be able to hang a write (field report
+        // 2026-09-21: the Save button spun forever). A throw becomes a refusal
+        // and the normal classification below decides what the person sees.
+        const e = err as { code?: string; message?: string }
+        res = { ok: false, code: e?.code, error: e?.message ?? 'The municipal server refused this change.' }
+      }
       if (res.ok) return res
       const code = (res as { code?: string }).code
+      // The server answered but the function or table for this feature is not
+      // in the database yet (a migration the office has not run). The work is
+      // kept on the device and queued — it uploads by itself once the SQL is
+      // there — and the Sync Centre says plainly what it is waiting for.
+      if (code === 'NOT_PROVISIONED' || isProvisioningFailure(res)) {
+        const localRes = await localFn()
+        if (localRes.ok) {
+          this.queue(operation, payload, summary)
+          const items = this.local.outboxSnapshot()
+          const last = items[items.length - 1]
+          if (last) this.local.updateOutbox(last.id, { error: WAITING_FOR_SETUP_MESSAGE })
+        }
+        return localRes
+      }
       const networkFailure = code === 'NETWORK' || /failed to fetch|network|timeout/i.test(res.error ?? '')
       // A dead session is like a dropped link for the person at the desk: the
       // entry is kept on the device and uploaded after signing in again,

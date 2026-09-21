@@ -367,11 +367,16 @@ export class RemoteApi implements RegistryApi {
   }
 
   async upsertSubsidyProgram(input: Partial<SubsidyProgram> & { name: string }): Promise<ApiResult<SubsidyProgram>> {
-    const res = await this.rpc<{ ok: boolean; program?: SubsidyProgram; code?: string; error?: string }>(
-      'fn_subsidy_upsert_program', { p: input })
-    return res?.ok && res.program
-      ? { ok: true, data: res.program }
-      : { ok: false, code: res?.code, error: res?.error ?? 'The server refused this programme change.' }
+    try {
+      const res = await this.rpc<{ ok: boolean; program?: SubsidyProgram; code?: string; error?: string }>(
+        'fn_subsidy_upsert_program', { p: input })
+      return res?.ok && res.program
+        ? { ok: true, data: res.program }
+        : { ok: false, code: res?.code, error: res?.error ?? 'The server refused this programme change.' }
+    } catch (err) {
+      const e = parseDbError(err)
+      return { ok: false, code: e.code, error: e.message }
+    }
   }
 
   async listSubsidyBeneficiaries(programId: string, barangayId?: string | null): Promise<SubsidyBeneficiary[]> {
@@ -384,17 +389,27 @@ export class RemoteApi implements RegistryApi {
     program_id: string; person_id: string; barangay_id?: string | null
     classification_code?: string | null; verified?: boolean; paper_ref?: string | null; notes?: string | null
   }): Promise<ApiResult<SubsidyBeneficiary>> {
-    const res = await this.rpc<{ ok: boolean; beneficiary?: SubsidyBeneficiary; code?: string; error?: string }>(
-      'fn_subsidy_add_beneficiary', { p: input })
-    return res?.ok && res.beneficiary
-      ? { ok: true, data: res.beneficiary }
-      : { ok: false, code: res?.code, error: res?.error ?? 'The server refused this beneficiary.' }
+    try {
+      const res = await this.rpc<{ ok: boolean; beneficiary?: SubsidyBeneficiary; code?: string; error?: string }>(
+        'fn_subsidy_add_beneficiary', { p: input })
+      return res?.ok && res.beneficiary
+        ? { ok: true, data: res.beneficiary }
+        : { ok: false, code: res?.code, error: res?.error ?? 'The server refused this beneficiary.' }
+    } catch (err) {
+      const e = parseDbError(err)
+      return { ok: false, code: e.code, error: e.message }
+    }
   }
 
   async removeSubsidyBeneficiary(id: string, reason?: string | null): Promise<ApiResult<{ id: string }>> {
-    const res = await this.rpc<{ ok: boolean; code?: string; error?: string }>(
-      'fn_subsidy_remove_beneficiary', { p_id: id, p_reason: reason })
-    return res?.ok ? { ok: true, data: { id } } : { ok: false, code: res?.code, error: res?.error ?? 'Refused.' }
+    try {
+      const res = await this.rpc<{ ok: boolean; code?: string; error?: string }>(
+        'fn_subsidy_remove_beneficiary', { p_id: id, p_reason: reason })
+      return res?.ok ? { ok: true, data: { id } } : { ok: false, code: res?.code, error: res?.error ?? 'Refused.' }
+    } catch (err) {
+      const e = parseDbError(err)
+      return { ok: false, code: e.code, error: e.message }
+    }
   }
 
   /** Pre-0011 databases only know the two-argument mirror function. */

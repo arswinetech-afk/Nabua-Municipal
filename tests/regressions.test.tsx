@@ -843,3 +843,81 @@ describe('REGRESSION 12 — subsidy lists are explicit, deduplicated and durable
     expect(restarted).toHaveLength(2)
   })
 })
+
+/**
+ * REGRESSION 13 — field report 2026-09-21: "saving the subsidy programme is
+ * stuck in loading". The database on the server had no migration 0012 yet, so
+ * the RPC answered "function does not exist"; the remote layer threw, the
+ * throw escaped the write path, and the Save button spun forever with the
+ * refusal swallowed. A remote throw must always become a result: a missing
+ * feature-table keeps the work on the device and queues it under the honest
+ * waiting-for-setup message; anything else surfaces as a refusal toast.
+ */
+describe('REGRESSION 13 — a server without the subsidy migration refuses honestly, never hangs', () => {
+  function makeRemote(throwCode: string) {
+    return {
+      mode: 'supabase' as const,
+      offlineCapable: false,
+      async probeSchema() { return 'ready' as const },
+      async signIn(email: string) {
+        return {
+          ok: true as const,
+          data: {
+            id: 'u-enc', name: 'Encoder One', email,
+            role: 'SYSTEM_ADMIN' as const, active: true, barangay_scope: null, last_login: null,
+          },
+        }
+      },
+      async signOut() { /* nothing to do */ },
+      setSession() { /* nothing to cache */ },
+      async listBarangays() { return [] },
+      async personIndex() { return [] },
+      async listDuplicateCases() { return { total: 0, rows: [] } },
+      async upsertSubsidyProgram() {
+        const err = new Error(throwCode === 'NOT_PROVISIONED'
+          ? 'Could not find the function public.fn_subsidy_upsert_program in the schema cache'
+          : 'The server refused this programme change.') as Error & { code: string }
+        err.code = throwCode
+        throw err
+      },
+    } as unknown as RemoteApi
+  }
+
+  function cachedSession() {
+    localStorage.setItem('nmbr.session.v1', JSON.stringify({
+      user: {
+        id: 'u-enc', name: 'Encoder One', email: 'encoder@nabua.gov.ph',
+        role: 'SYSTEM_ADMIN', active: true, barangay_scope: null, last_login: null,
+      },
+      at: Date.now(),
+    }))
+  }
+
+  it('a missing migration keeps the programme on the device and queues it with the waiting message', async () => {
+    cachedSession()
+    const a = new ApiClient({ remote: makeRemote('NOT_PROVISIONED') })
+    await a.local.restoreSession()
+    await a.signIn('encoder@nabua.gov.ph', 'Office@2026')
+
+    const res = await a.upsertSubsidyProgram({ name: 'Bigasan 2026', active: true })
+    expect(res.ok).toBe(true) // saved on-device, not lost, not spinning
+    const programs = await a.local.listSubsidyPrograms()
+    expect(programs.some((p) => p.name === 'Bigasan 2026')).toBe(true)
+    const queued = a.local.outboxSnapshot()
+    expect(queued).toHaveLength(1)
+    expect(queued[0]?.operation).toBe('upsertSubsidyProgram')
+    expect(queued[0]?.error).toMatch(/waiting for the municipal database/i)
+  })
+
+  it('any other remote refusal resolves as a refusal the screen can toast', async () => {
+    cachedSession()
+    const a = new ApiClient({ remote: makeRemote('FORBIDDEN') })
+    await a.local.restoreSession()
+    await a.signIn('encoder@nabua.gov.ph', 'Office@2026')
+
+    const res = await a.upsertSubsidyProgram({ name: 'Bigasan 2026', active: true })
+    expect(res.ok).toBe(false)
+    expect(res.error).toMatch(/refused/i)
+    expect(a.local.outboxSnapshot()).toHaveLength(0)
+  })
+})

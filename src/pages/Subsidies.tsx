@@ -79,15 +79,20 @@ export default function Subsidies() {
       return
     }
     setBusy(true)
-    const res = await api.upsertSubsidyProgram({
-      id: editing?.id, name: form.name.trim(), description: form.description || null,
-      period_start: form.period_start || null, period_end: form.period_end || null, active: form.active,
-    })
-    setBusy(false)
-    if (!res.ok) { toast.push({ tone: 'error', title: 'Refused', message: res.error }); return }
-    setEditing(null); setCreating(false)
-    void loadPrograms()
-    toast.push({ tone: 'success', title: 'Programme saved' })
+    try {
+      const res = await api.upsertSubsidyProgram({
+        id: editing?.id, name: form.name.trim(), description: form.description || null,
+        period_start: form.period_start || null, period_end: form.period_end || null, active: form.active,
+      })
+      if (!res.ok) { toast.push({ tone: 'error', title: 'Refused', message: res.error }); return }
+      setEditing(null); setCreating(false)
+      void loadPrograms()
+      toast.push({ tone: 'success', title: 'Programme saved' })
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Could not save', message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const startAdd = (person: Person) => {
@@ -98,26 +103,36 @@ export default function Subsidies() {
   const confirmAdd = async () => {
     if (!adding || !open) return
     setBusy(true)
-    const res = await api.addSubsidyBeneficiary({
-      program_id: open.id, person_id: adding.id, barangay_id: (adding.barangay_id ?? barangayFilter) || null,
-      classification_code: addForm.classification_code || null,
-      verified: addForm.verified, paper_ref: addForm.paper_ref || null, notes: addForm.notes || null,
-    })
-    setBusy(false)
-    if (!res.ok) { toast.push({ tone: 'error', title: 'Not added', message: res.error }); return }
-    setAdding(null); setQuery(''); setCandidates([])
-    void loadBeneficiaries(); void loadPrograms()
-    toast.push({ tone: 'success', title: 'Added to the programme list', message: 'Cross-check the paper row before marking verified.' })
+    try {
+      const res = await api.addSubsidyBeneficiary({
+        program_id: open.id, person_id: adding.id, barangay_id: (adding.barangay_id ?? barangayFilter) || null,
+        classification_code: addForm.classification_code || null,
+        verified: addForm.verified, paper_ref: addForm.paper_ref || null, notes: addForm.notes || null,
+      })
+      if (!res.ok) { toast.push({ tone: 'error', title: 'Not added', message: res.error }); return }
+      setAdding(null); setQuery(''); setCandidates([])
+      void loadBeneficiaries(); void loadPrograms()
+      toast.push({ tone: 'success', title: 'Added to the programme list', message: 'Cross-check the paper row before marking verified.' })
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Could not add', message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const confirmRemove = async (reason: string) => {
     if (!removing) return
     setBusy(true)
-    const res = await api.removeSubsidyBeneficiary(removing.id, reason)
-    setBusy(false)
-    setRemoving(null)
-    if (!res.ok) { toast.push({ tone: 'error', title: 'Refused', message: res.error }); return }
-    void loadBeneficiaries(); void loadPrograms()
+    try {
+      const res = await api.removeSubsidyBeneficiary(removing.id, reason)
+      setRemoving(null)
+      if (!res.ok) { toast.push({ tone: 'error', title: 'Refused', message: res.error }); return }
+      void loadBeneficiaries(); void loadPrograms()
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Could not remove', message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
   }
 
   const columns: Array<Column<SubsidyBeneficiary>> = [
