@@ -758,7 +758,7 @@ export class ApiClient implements RegistryApi {
   importCreateBatch(
     fileName: string, rows: PersonInput[], defaultBarangayId?: string | null,
     onProgress?: (done: number, total: number) => void,
-  ): Promise<ApiResult<{ batch_id: string }>> {
+  ): Promise<ApiResult<{ batch_id: string; warning?: string }>> {
     return this.read(
       this.remote && this.usingServer
         ? () => this.remote!.importCreateBatch(fileName, rows, defaultBarangayId, onProgress)

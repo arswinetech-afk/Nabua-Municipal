@@ -640,7 +640,7 @@ export class RemoteApi implements RegistryApi {
   async importCreateBatch(
     fileName: string, rows: PersonInput[], defaultBarangayId?: string | null,
     onProgress?: (done: number, total: number) => void,
-  ): Promise<ApiResult<{ batch_id: string }>> {
+  ): Promise<ApiResult<{ batch_id: string; warning?: string }>> {
     try {
       // The first chunk creates the batch; the rest stream in. Chunks stay
       // small because the server scores every row against the registry
@@ -660,8 +660,22 @@ export class RemoteApi implements RegistryApi {
         await this.rpc('fn_import_add_rows', { p_batch_id: res.batch_id, p_rows: rows.slice(i, i + CHUNK) })
         onProgress?.(Math.min(i + CHUNK, rows.length), rows.length)
       }
-      // In-file duplicate scan runs once over the whole batch (migration 0014).
-      await this.rpc('fn_import_finalize_batch', { p_batch_id: res.batch_id })
+      // In-file duplicate scan runs once over the whole batch (migration 0014,
+      // capped in 0015). If it cannot finish right now the rows are already
+      // staged safely — commit re-runs the pass — so warn instead of failing.
+      try {
+        await this.rpc('fn_import_finalize_batch', { p_batch_id: res.batch_id })
+      } catch {
+        return {
+          ok: true,
+          data: {
+            batch_id: res.batch_id,
+            warning:
+              'All rows are staged. The in-file duplicate pass could not finish in time on the server; ' +
+              'it will run again when you commit the batch. Twins inside the file may appear unflagged until then.',
+          },
+        }
+      }
       onProgress?.(rows.length, rows.length)
       return { ok: true, data: { batch_id: res.batch_id } }
     } catch (err) {

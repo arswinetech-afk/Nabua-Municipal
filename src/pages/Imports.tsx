@@ -248,6 +248,7 @@ export default function Imports() {
         setBusy(false)
         return
       }
+      if (res.data.warning) toast.push({ tone: 'warning', title: 'Staged with a caveat', message: res.data.warning })
       setBatchId(res.data.batch_id)
       const sum = await api.importSummary(res.data.batch_id)
       setSummary(sum)
