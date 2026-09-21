@@ -115,6 +115,11 @@ function parseDbError(err: unknown): RemoteError {
   return new RemoteError(clean, e.code, detail, isNetworkError(e))
 }
 
+interface CommitChunk {
+  ok: boolean; imported?: number; duplicates_parked?: number; skipped?: number
+  linked?: number; remaining?: number; done?: boolean; message?: string; error?: string
+}
+
 export class RemoteApi implements RegistryApi {
   readonly mode = 'supabase' as const
   readonly offlineCapable = false
@@ -725,29 +730,44 @@ export class RemoteApi implements RegistryApi {
     }
   }
 
-  async importCommit(batchId: string, defaultBarangayId?: string | null): Promise<ApiResult<{
+  async importCommit(
+    batchId: string, defaultBarangayId?: string | null, onProgress?: (done: number) => void,
+  ): Promise<ApiResult<{
     imported: number; duplicates_parked: number; skipped: number; linked: number; message: string
   }>> {
-    try {
-      const res = await this.rpc<{
-        ok: boolean; imported?: number; duplicates_parked?: number; skipped?: number
-        linked?: number; message?: string; error?: string
-      }>('fn_import_commit', { p_batch_id: batchId, p_default_barangay: defaultBarangayId ?? null })
-      if (!res?.ok) return { ok: false, error: res?.error ?? 'Import failed.' }
-      return {
-        ok: true,
-        data: {
-          imported: res.imported ?? 0, duplicates_parked: res.duplicates_parked ?? 0,
-          skipped: res.skipped ?? 0, linked: res.linked ?? 0,
-          message: res.message ?? 'Import committed.',
-        },
+    // 0018: the commit is chunked and resumable — each call is its own
+    // transaction, so a timeout loses nothing; the next call continues.
+    const totals = { imported: 0, duplicates_parked: 0, skipped: 0, linked: 0 }
+    let message = 'Import committed.'
+    for (let step = 0; step < 500; step += 1) {
+      let res: CommitChunk | null = null
+      try {
+        res = await this.rpc<CommitChunk>(
+          'fn_import_commit',
+          { p_batch_id: batchId, p_default_barangay: defaultBarangayId ?? null, p_max_rows: 100 },
+        )
+      } catch (err) {
+        const e = parseDbError(err)
+        const saved = totals.imported + totals.duplicates_parked + totals.skipped
+        return {
+          ok: false,
+          error: saved > 0
+            ? `${e.message} — ${saved} row(s) were already written safely; tap Import again to continue where it stopped.`
+            : e.message,
+          code: e.code,
+        }
       }
-    } catch (err) {
-      const e = parseDbError(err)
-      return { ok: false, error: e.message, code: e.code }
+      if (!res?.ok) return { ok: false, error: res?.error ?? 'Import failed.' }
+      totals.imported += res.imported ?? 0
+      totals.duplicates_parked += res.duplicates_parked ?? 0
+      totals.skipped += res.skipped ?? 0
+      totals.linked = res.linked ?? totals.linked
+      message = res.message ?? message
+      onProgress?.(totals.imported + totals.duplicates_parked + totals.skipped)
+      if (res.done) return { ok: true, data: { ...totals, message } }
     }
+    return { ok: false, error: 'The import did not finish in the expected number of steps — tap Import again to continue.' }
   }
-
   async listImportBatches(): Promise<ImportSummary[]> {
     // Batches are listed through the audit trail to avoid an extra table scan.
     const res = await this.listAudit({ action: 'IMPORTED', limit: 50 })

@@ -86,6 +86,7 @@ export default function Imports() {
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [rows, setRows] = useState<ImportRow[]>([])
   const [busy, setBusy] = useState(false)
+  const [commitProgress, setCommitProgress] = useState<number | null>(null)
   const [committed, setCommitted] = useState<{ imported: number; duplicates_parked: number; skipped: number; linked: number; message: string } | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
   const [blockInfo, setBlockInfo] = useState<BlockSection[] | null>(null)
@@ -319,8 +320,15 @@ export default function Imports() {
   const commit = async () => {
     if (!batchId) return
     setBusy(true)
-    const res = await api.importCommit(batchId, defaultBarangay || null)
-    setBusy(false)
+    setCommitProgress(0)
+    let res: Awaited<ReturnType<typeof api.importCommit>> | null = null
+    try {
+      res = await api.importCommit(batchId, defaultBarangay || null, (done) => setCommitProgress(done))
+    } finally {
+      setBusy(false)
+      setCommitProgress(null)
+    }
+    if (!res) return
     if (!res.ok) {
       toast.push({ tone: 'error', title: 'Import failed', message: res.error })
       return
@@ -807,7 +815,10 @@ export default function Imports() {
                 disabled={!batchId || (summary?.approved_rows ?? 0) === 0}
                 onClick={() => void commit()}
               >
-                <IconCheck /> Import {summary?.approved_rows ?? 0} approved row(s)
+                <IconCheck />{' '}
+                {commitProgress != null
+                  ? `Importing… ${commitProgress} row(s) written so far`
+                  : `Import ${summary?.approved_rows ?? 0} approved row(s)`}
               </Button>
               <p className="mt-2 text-[11px] text-ink-soft">
                 Every imported record is audited with your name and the batch file name.

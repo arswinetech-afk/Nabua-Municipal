@@ -794,13 +794,15 @@ export class ApiClient implements RegistryApi {
     return this.local.importSetAllDecisions(batchId, severity, decision, duplicatesOnly, onlyUndecided)
   }
 
-  importCommit(batchId: string, defaultBarangayId?: string | null): Promise<ApiResult<{
+  importCommit(
+    batchId: string, defaultBarangayId?: string | null, onProgress?: (done: number) => void,
+  ): Promise<ApiResult<{
     imported: number; duplicates_parked: number; skipped: number; linked: number; message: string
   }>> {
     if (this.usingServer && this.remote && !batchId.startsWith('ib')) {
-      return this.remote.importCommit(batchId, defaultBarangayId)
+      return this.remote.importCommit(batchId, defaultBarangayId, onProgress)
     }
-    return this.local.importCommit(batchId, defaultBarangayId)
+    return this.local.importCommit(batchId, defaultBarangayId, onProgress)
   }
 
   listImportBatches(): Promise<ImportSummary[]> {

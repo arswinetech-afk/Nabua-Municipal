@@ -1596,7 +1596,7 @@ export class LocalApi implements RegistryApi {
 
 
 
-  async importCommit(batchId: string, _defaultBarangayId?: string | null): Promise<ApiResult<{
+  async importCommit(batchId: string, _defaultBarangayId?: string | null, onProgress?: (done: number) => void): Promise<ApiResult<{
     imported: number; duplicates_parked: number; skipped: number; linked: number; message: string
   }>> {
     const denial = this.require(['ADMINISTRATOR', 'SYSTEM_ADMIN'])

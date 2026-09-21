@@ -224,7 +224,7 @@ export interface RegistryApi {
   }): Promise<ImportRow[]>
   importSetDecision(rowId: string | number, decision: string): Promise<ApiResult<unknown>>
   importSetAllDecisions(batchId: string, severity: string | null, decision: string, duplicatesOnly?: boolean, onlyUndecided?: boolean): Promise<ApiResult<{ updated?: number }>>
-  importCommit(batchId: string, defaultBarangayId?: string | null): Promise<ApiResult<{
+  importCommit(batchId: string, defaultBarangayId?: string | null, onProgress?: (done: number) => void): Promise<ApiResult<{
     imported: number; duplicates_parked: number; skipped: number; linked: number; message: string
   }>>
   listImportBatches(): Promise<ImportSummary[]>
