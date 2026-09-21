@@ -141,10 +141,15 @@ export default function Dashboard() {
           ))
         ) : (
           <>
-            <KpiCard label="Total Barangays" value={stats.total_barangays} sub={`${stats.active_barangays} active`}
+            <KpiCard label="Total Barangays" value={stats.total_barangays}
+              sub={stats.total_barangays > stats.active_barangays
+                ? `${stats.active_barangays} active · ${stats.total_barangays - stats.active_barangays} inactive (retired, never deleted)`
+                : `${stats.active_barangays} active`}
               icon={<IconMap />} onClick={() => navigate('/barangays')} />
             <KpiCard label="Total Registered Members" value={stats.total_members.toLocaleString()}
-              sub={`${stats.active_members.toLocaleString()} active`} icon={<IconUsers />}
+              sub={stats.total_members > stats.active_members
+                ? `${stats.active_members.toLocaleString()} active · ${(stats.total_members - stats.active_members).toLocaleString()} for review`
+                : `${stats.active_members.toLocaleString()} active`} icon={<IconUsers />}
               onClick={() => navigate('/members')} />
             <KpiCard label="New Members Today" value={stats.new_today} sub="Encoded since midnight" icon={<IconPerson />}
               tone={stats.new_today > 0 ? 'success' : 'neutral'} onClick={() => navigate('/members?since=today')} />
