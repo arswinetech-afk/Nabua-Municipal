@@ -300,6 +300,21 @@ const searched = (await db.query(
 check('search results carry the tags so lists can show them',
   Array.isArray(searched) && searched.includes('AKAP'), JSON.stringify(searched))
 
+// MIGRATION 0014: staging at paper-list scale — chunked add_rows plus a
+// single finalize pass must flag in-file twins exactly once
+const twin = { first_name: 'Twin', last_name: 'Batchrow', date_of_birth: '1980-04-01', sex: 'FEMALE', barangay_id: brgy }
+const chunk = (n) => Array.from({ length: n }, (_, i) => ({ ...twin, first_name: `Row${i}` }))
+const bres = (await db.query(`select fn_import_create_batch($1, $2, $3) as r`,
+  ['scale-test.xlsx', JSON.stringify({ default_barangay_id: brgy }), JSON.stringify(chunk(60))])).rows[0]?.r
+const bid = bres?.batch_id
+const ares = (await db.query(`select fn_import_add_rows($1, $2) as r`, [bid, JSON.stringify(chunk(60))])).rows[0]?.r
+const ares2 = (await db.query(`select fn_import_add_rows($1, $2) as r`, [bid, JSON.stringify([twin, { ...twin, middle_name: 'T' }])])).rows[0]?.r
+const fin = (await db.query(`select fn_import_finalize_batch($1) as r`, [bid])).rows[0]?.r
+check('chunked staging accepts 122 rows across three statements',
+  bres?.ok === true && ares?.ok === true && ares2?.ok === true, JSON.stringify({ bres, ares, ares2 }))
+check('the finalize pass flags the in-file twin pair once',
+  fin?.ok === true && Number(fin?.in_file_duplicates) >= 1, JSON.stringify(fin))
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'

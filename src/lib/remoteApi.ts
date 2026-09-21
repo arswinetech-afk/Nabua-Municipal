@@ -33,6 +33,7 @@ type RpcName =
   | 'fn_import_set_decision' | 'fn_import_set_all_decisions' | 'fn_import_commit' | 'fn_link_auth_user'
   | 'fn_subsidy_programs' | 'fn_subsidy_upsert_program' | 'fn_subsidy_beneficiaries'
   | 'fn_subsidy_add_beneficiary' | 'fn_subsidy_remove_beneficiary'
+  | 'fn_import_finalize_batch'
   | 'fn_schema_info'
 
 export class RemoteError extends Error {
@@ -659,6 +660,9 @@ export class RemoteApi implements RegistryApi {
         await this.rpc('fn_import_add_rows', { p_batch_id: res.batch_id, p_rows: rows.slice(i, i + CHUNK) })
         onProgress?.(Math.min(i + CHUNK, rows.length), rows.length)
       }
+      // In-file duplicate scan runs once over the whole batch (migration 0014).
+      await this.rpc('fn_import_finalize_batch', { p_batch_id: res.batch_id })
+      onProgress?.(rows.length, rows.length)
       return { ok: true, data: { batch_id: res.batch_id } }
     } catch (err) {
       const e = parseDbError(err)

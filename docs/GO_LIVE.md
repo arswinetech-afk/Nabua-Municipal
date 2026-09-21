@@ -344,6 +344,18 @@ origin near 5 MB), so since migration 0011 the mirror:
 REGRESSION 11 proves a 400-member mirror survives a restart outside
 localStorage; the PG suite proves the paging returns every row exactly once.
 
+**Import staging at list scale (migration 0014).** Staging a thousand-row
+barangay list used to die with “canceling statement due to statement
+timeout”: every 400-row statement re-ran the in-file duplicate scan over all
+rows staged so far (cost growing with the square of the batch), and each row
+built full person JSON for up to 400 duplicate candidates. Since 0014 the
+client streams 60-row statements with a visible progress line, staging uses a
+lite scorer, the in-file duplicate pass runs **once per batch**
+(`fn_import_finalize_batch`, also invoked by `fn_import_commit`), and the bulk
+statements carry an explicit `statement_timeout` instead of the connection
+default. The PG suite stages 122 rows across three statements and proves the
+finalize pass flags a twin pair exactly once.
+
 ## 10. Subsidy (ayuda) programmes — and the line this system will not cross
 
 Migration 0012 adds two tables — `subsidy_programs` (Bigasan, Walang Gutom,
