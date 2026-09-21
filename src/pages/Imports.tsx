@@ -161,8 +161,10 @@ export default function Imports() {
 
   const detected = useMemo(() => Object.entries(mapping).filter(([, v]) => v), [mapping])
 
+  const implausibleDobs = useRef<Array<{ row: number; value: string }>>([])
   const normalised = useMemo<PersonInput[]>(() => {
-    return rawRows.map((row) => {
+    const rejected: Array<{ row: number; value: string }> = []
+    const rows = rawRows.map((row, rowIdx) => {
       const pick = (field: string) => {
         const header = mapping[field]
         return header ? String(row[header] ?? '').trim() : ''
@@ -185,12 +187,27 @@ export default function Imports() {
       const matched = barangays.find((b) => b.name.toLowerCase() === barangayText || b.name.toLowerCase().includes(barangayText) && barangayText.length > 3)
       const sexRaw = pick('sex').toUpperCase()
       const sex = sexRaw.startsWith('M') ? 'MALE' : sexRaw.startsWith('F') ? 'FEMALE' : null
+      // FIELD REPORT 2026-09-21 (21:08): Excel-epoch junk (1899-12-30) and
+      // future dates violate persons_dob_sane at commit. Strip them here, on
+      // every device, so no server version can ever be killed by one row.
+      const dobNorm = normalizeDate(pick('date_of_birth'))
+      let dob: string | null = dobNorm || pick('date_of_birth') || null
+      if (dobNorm) {
+        const d = new Date(`${dobNorm}T00:00:00`)
+        const max = new Date()
+        max.setHours(0, 0, 0, 0)
+        max.setDate(max.getDate() + 1)
+        if (d.getTime() <= Date.parse('1900-01-01T00:00:00') || d.getTime() >= max.getTime()) {
+          rejected.push({ row: rowIdx + 1, value: dobNorm })
+          dob = null
+        }
+      }
       return {
         first_name: normalizeName(first) || first,
         middle_name: normalizeName(middle) || middle || null,
         last_name: normalizeName(last) || last,
         suffix: pick('suffix') || null,
-        date_of_birth: normalizeDate(pick('date_of_birth')) || pick('date_of_birth') || null,
+        date_of_birth: dob,
         sex,
         civil_status: pick('civil_status').toUpperCase() || null,
         contact_number: normalizeContact(pick('contact_number')) || null,
@@ -203,6 +220,8 @@ export default function Imports() {
         household_no: pick('household_no') || null,
       } as PersonInput
     })
+    implausibleDobs.current = rejected
+    return rows
   }, [rawRows, mapping, barangays, defaultBarangay])
 
   const validation = useMemo(() => {
@@ -210,7 +229,9 @@ export default function Imports() {
     normalised.forEach((p, i) => {
       if (!p.first_name && !p.last_name) issues.push({ row: i + 1, severity: 'ERROR', message: 'No name could be read from this row.' })
       if (p.date_of_birth && !normalizeDate(p.date_of_birth)) issues.push({ row: i + 1, severity: 'ERROR', message: `Unreadable birthdate “${p.date_of_birth}”.` })
-      if (!p.date_of_birth) issues.push({ row: i + 1, severity: 'WARNING', message: 'Missing birthdate — duplicates are harder to detect.' })
+      const rej = implausibleDobs.current.find((x) => x.row === i + 1)
+      if (rej) issues.push({ row: i + 1, severity: 'WARNING', message: `Implausible birthdate “${rej.value}” removed — the row imports without it; restore the date in the member record later.` })
+      if (!p.date_of_birth && !rej) issues.push({ row: i + 1, severity: 'WARNING', message: 'Missing birthdate — duplicates are harder to detect.' })
       if (!p.sex) issues.push({ row: i + 1, severity: 'WARNING', message: 'Missing sex.' })
       if (!p.middle_name) issues.push({ row: i + 1, severity: 'WARNING', message: 'Missing middle name — check for a hidden duplicate.' })
       if (p.contact_number && p.contact_number.replace(/\D/g, '').length < 7) issues.push({ row: i + 1, severity: 'WARNING', message: 'Contact number looks incomplete.' })
