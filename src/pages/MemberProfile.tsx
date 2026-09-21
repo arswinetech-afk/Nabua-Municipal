@@ -104,6 +104,7 @@ export default function MemberProfile() {
       suffix: person.suffix ?? '', date_of_birth: person.date_of_birth ?? '', sex: person.sex ?? '',
       civil_status: person.civil_status ?? '', contact_number: person.contact_number ?? '',
       classification_code: person.classification_code ?? '',
+      tags: (person.tags ?? []).join(', '), occupation: person.occupation ?? '',
       purok: person.purok ?? '', address: person.address ?? '', remarks: person.remarks ?? '',
     })
     setEditReason('')
@@ -127,6 +128,8 @@ export default function MemberProfile() {
       suffix: editForm.suffix || null, date_of_birth: normalizeDate(editForm.date_of_birth) || null,
       sex: editForm.sex || null, civil_status: editForm.civil_status || null,
       contact_number: editForm.contact_number || null, classification_code: editForm.classification_code || null,
+      tags: (editForm.tags ?? '').split(/[;,]/).map((t) => t.trim()).filter(Boolean),
+      occupation: editForm.occupation || null,
       purok: editForm.purok || null,
       address: editForm.address || null, remarks: editForm.remarks || null,
     }
@@ -266,6 +269,7 @@ export default function MemberProfile() {
             {fullName(person)} {person.suffix ?? ''}
             <StatusBadge status={person.status} />
             {openCases.length > 0 && <Badge tone="danger">{openCases.length} duplicate case(s)</Badge>}
+            {(person.tags ?? []).map((t) => <Badge key={t} tone="info">{t}</Badge>)}
           </span>
         }
         subtitle={
@@ -601,6 +605,12 @@ export default function MemberProfile() {
           </Field>
           <Field label="Civil status">
             <input className="input" value={editForm.civil_status ?? ''} onChange={(e) => setEditForm({ ...editForm, civil_status: e.target.value })} />
+          </Field>
+          <Field label="Tags" hint="Comma-separated; from barangay paper lists (FAMILY LEADER, AKAP, …).">
+            <input className="input" value={editForm.tags ?? ''} onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })} placeholder="FAMILY LEADER, AKAP" />
+          </Field>
+          <Field label="Occupation">
+            <input className="input" value={editForm.occupation ?? ''} onChange={(e) => setEditForm({ ...editForm, occupation: e.target.value })} />
           </Field>
           <Field label="Classification">
             <select className="input" value={editForm.classification_code ?? ''} onChange={(e) => setEditForm({ ...editForm, classification_code: e.target.value })}>

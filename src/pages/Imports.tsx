@@ -17,6 +17,7 @@ import type { ImportRow, ImportSummary, PersonInput } from '../lib/api'
 import type { Barangay } from '../lib/types'
 import { normalizeDate, normalizeContact, normalizeName } from '../lib/normalize'
 import { cn, relativeTime, downloadXlsx, pickXlsx } from '../lib/utils'
+import { parseBlockSheet, type BlockSection } from '../lib/importBlocks'
 import { fullName } from '../lib/normalize'
 import {
   Badge, Button, Card, Field, IconAlert, IconArrowLeft, IconArrowRight, IconCheck, IconDownload,
@@ -51,14 +52,17 @@ const FIELD_ALIASES: Partial<Record<keyof PersonInput | 'name', string[]>> & Rec
   middle_name: ['middle name', 'middlename', 'middle initial', 'mi', 'middle'],
   last_name: ['last name', 'lastname', 'surname', 'family name', 'apelyido', 'last'],
   suffix: ['suffix', 'ext', 'extension', 'jr', 'sr'],
-  date_of_birth: ['birthdate', 'date of birth', 'birth date', 'dob', 'kapanganakan', 'birthday'],
+  date_of_birth: ['birthdate', 'date of birth', 'birth date', 'dob', 'kapanganakan', 'birthday', 'bdate'],
   sex: ['sex', 'gender', 'kasarian'],
-  civil_status: ['civil status', 'marital status', 'status'],
+  civil_status: ['civil status', 'marital status', 'civil stat', 'status'],
   contact_number: ['contact', 'contact number', 'mobile', 'phone', 'cellphone', 'number', 'cp number'],
   purok: ['purok', 'sitio', 'zone', 'purok/sitio'],
   address: ['address', 'complete address', 'street', 'tirahan'],
   barangay_id: ['barangay', 'brgy', 'barangay name'],
   remarks: ['remarks', 'notes', 'comment'],
+  tags: ['tags', 'tagging', 'tag'],
+  occupation: ['occupation', 'trabaho', 'job'],
+  household_no: ['household no', 'household', 'family no', 'pamilya'],
   name: ['name', 'full name', 'member name', 'pangaran'],
   status: ['status', 'record status'],
 }
@@ -84,6 +88,7 @@ export default function Imports() {
   const [busy, setBusy] = useState(false)
   const [committed, setCommitted] = useState<{ imported: number; duplicates_parked: number; skipped: number; linked: number; message: string } | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [blockInfo, setBlockInfo] = useState<BlockSection[] | null>(null)
 
   const canImport = user && ['ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
 
@@ -106,6 +111,24 @@ export default function Imports() {
       const data = await f.arrayBuffer()
       const workbook = XLSX.read(data, { type: 'array', cellDates: true })
       const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      // Barangay programme lists (LP-TOPAS and kin) keep several lists side by
+      // side under title rows; flatten them before the flat-row path sees them.
+      const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false })
+      const prefix = (workbook.SheetNames[0] || f.name.replace(/\.[a-z0-9]+$/i, '')).toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 24) || 'LIST'
+      const blocks = parseBlockSheet(grid, { householdPrefix: prefix })
+      if (blocks.detected) {
+        setBlockInfo(blocks.sections)
+        setHeaders(blocks.headers)
+        setRawRows(blocks.rows as unknown as Array<Record<string, unknown>>)
+        setMapping(detectMapping(blocks.headers))
+        setStep(2)
+        toast.push({
+          tone: 'success', title: `${blocks.rows.length} row(s) read from ${blocks.sections.length} sections`,
+          message: blocks.sections.map((x) => `${x.count} ${x.role.toLowerCase()}(s)`).join(' · '),
+        })
+        return
+      }
+      setBlockInfo(null)
       const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
       if (json.length === 0) {
         setParseError('The file has no data rows. Check the sheet and header row.')
@@ -164,6 +187,9 @@ export default function Imports() {
         address: pick('address') || null,
         barangay_id: matched?.id ?? defaultBarangay ?? null,
         remarks: pick('remarks') || null,
+        tags: pick('tags') ? pick('tags').split(/[;,]/).map((t) => t.trim()).filter(Boolean) : null,
+        occupation: pick('occupation') || null,
+        household_no: pick('household_no') || null,
       } as PersonInput
     })
   }, [rawRows, mapping, barangays, defaultBarangay])
@@ -393,6 +419,18 @@ export default function Imports() {
       {/* ---------------------------------------------------------- 2) detect columns */}
       {step === 2 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {blockInfo && (
+            <Card className="lg:col-span-3">
+              <div className="card-pad flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-semibold">Multi-section paper list detected.</span>
+                <span className="text-ink-soft">
+                  {blockInfo.map((b) => `${b.count} × ${b.role}`).join(' · ')} — families stay grouped by the
+                  household number taken from the head rows, and the section roles plus the remarks codes
+                  (AKAP, AICS/4PS, …) are kept as visible tags.
+                </span>
+              </div>
+            </Card>
+          )}
           <Card className="lg:col-span-2">
             <div className="card-header">
               <h2 className="section-title">Detected columns</h2>

@@ -99,6 +99,9 @@ export interface Person {
   status: PersonStatus
   remarks?: string | null
   classification_code?: string | null
+  /** neutral paper-list / programme tags (LP-TOPAS: FAMILY LEADER, AKAP, …) */
+  tags?: string[]
+  occupation?: string | null
   household_id?: string | null
   household_name?: string | null
   merged_into?: string | null
@@ -130,6 +133,8 @@ export interface PersonIndexRow {
   barangay_id: string | null
   barangay_name: string | null
   status: PersonStatus
+  tags?: string[]
+  occupation?: string | null
   updated_at: string
   identity_key?: string
 }

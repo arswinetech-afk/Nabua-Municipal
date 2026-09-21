@@ -921,3 +921,75 @@ describe('REGRESSION 13 — a server without the subsidy migration refuses hones
     expect(a.local.outboxSnapshot()).toHaveLength(0)
   })
 })
+
+/**
+ * REGRESSION 14 — field request 2026-09-21: the LP-TOPAS SOGOD layout. One
+ * sheet carries three lists side by side (family leader / family head /
+ * family member) under title rows, birthdates arrive as raw Excel serials,
+ * and the remarks column holds programme tags (AKAP, AICS/4PS). A flat
+ * importer glued the blocks into nonsense and dropped the tags; the block
+ * parser must flatten it, keep families grouped by household, convert the
+ * serials and preserve roles + remarks as visible tags.
+ */
+describe('REGRESSION 14 — the side-by-side paper-list layout imports as families with tags', () => {
+  const H = (block: string[]) => block
+  const leaderHead = ['NO.', 'Surname', 'First Name', 'Middle Name', 'Ext. Name', 'Zone/ Street', 'Contact No.', 'Bdate (MM/DD/YYYY)', 'SEX', 'CIVIL STAT.', 'OCCUPATION']
+  const headHead = [...leaderHead, 'Remarks']
+  const memberHead = ['NO.', 'Surname', 'First name', 'Middle Name', 'Ext. Name', 'Zone/ Street', 'Contact No.', 'Bdate (MM/DD/YYYY)', 'SEX', 'CIVIL STAT.', 'Occupation', 'Remarks']
+  const pad = (row: unknown[], width: number) => { const r = [...row]; while (r.length < width) r.push(''); return r }
+
+  const grid: unknown[][] = [
+    pad(['LP-TOPAS'], 36),
+    pad(['MUNICIPALITY', 'NABUA'], 36),
+    pad(['BARANGAY', 'TOPAS SOGOD'], 36),
+    pad([], 36),
+    pad(H(['', 'NAME OF FAMILY LEADER']), 36).map((c, i) => (i === 12 ? 'NAME OF FAMILY HEAD' : i === 24 ? "NAME OF FAMILY MEMBER (REGISTERED VOTER'S)" : c)),
+    pad([...leaderHead, '', ...headHead, '', ...memberHead], 36),
+    // row 6: leader 1 + head 1 + member 1 (family 1 opens)
+    pad([1, 'ROSALES', 'SUSANA', 'PENETRANTE', '', '1', '9488006286', '27783', 'F', 'W', 'BO', '',
+      1, 'ROSALES', 'SUSANA', 'PENETRANTE', '', '1', '9488006286', '27783', 'F', 'W', 'BO', '', '',
+      1, 'ROSALES', 'CHRISTINE MAE', 'PENETRANTE', '', '1', '', '35662', 'F', 'S', '', ''], 36),
+    // row 7: member 2 of family 1
+    pad(['', '', '', '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '', '', '', '', '',
+      2, 'ROSALES', 'MARIE JUN.', 'PENETRANTE', '', '1', '', '36437', 'F', 'S', '', ''], 36),
+    // row 8: leader 2 + head 2 (family 2 opens) + member 3
+    pad([2, 'BAEÑO', 'QUIRICO', 'LARESMA', 'JR', '1', '9692452755', '25852', 'M', 'M', '', '',
+      2, 'TODOC', 'MYRNA', 'RATIFICADO', '', '1', '', '25586', 'F', 'W', '', '', '',
+      3, 'VILLAFLOR', 'VANESSA', 'TODOC', '', '1', '', '34170', 'F', 'M', '', ''], 36),
+    // row 9: member 4 of family 2, tagged AKAP in the remarks column
+    pad(['', '', '', '', '', '', '', '', '', '', '', '',
+      '', '', '', '', '', '', '', '', '', '', '', '', '',
+      4, 'ALINO', 'CRISOSTOMO', 'TOMARES', '', '1', '', '27783', 'F', 'S', '', 'AKAP'], 36),
+  ]
+
+  it('flattens the three blocks into families with tags, serial dates converted', async () => {
+    const { parseBlockSheet } = await import('../src/lib/importBlocks')
+    const out = parseBlockSheet(grid, { householdPrefix: 'LP-TOPAS-SOGOD' })
+    expect(out.detected).toBe(true)
+    expect(out.sections.map((s) => `${s.role}:${s.count}`)).toEqual([
+      'FAMILY LEADER:2', 'FAMILY HEAD:2', 'FAMILY MEMBER:4',
+    ])
+    expect(out.rows).toHaveLength(8)
+
+    const byName = (first: string) => out.rows.find((r) => r.first_name === first)
+    const leader = byName('SUSANA') && out.rows.find((r) => r.first_name === 'SUSANA' && r.tags.includes('FAMILY LEADER'))
+    expect(leader?.household_no).toBe('LP-TOPAS-SOGOD-F001')
+    expect(leader?.tags).toContain('FAMILY LEADER')
+    expect(leader?.occupation).toBe('BO') // occupation column, not a tag
+    expect(leader?.civil_status).toBe('WIDOWED')
+
+    const head = out.rows.find((r) => r.first_name === 'MYRNA')
+    expect(head?.tags).toContain('FAMILY HEAD')
+    expect(head?.household_no).toBe('LP-TOPAS-SOGOD-F002')
+
+    const member = byName('CHRISTINE MAE')
+    expect(member?.household_no).toBe('LP-TOPAS-SOGOD-F001') // aligned under head 1
+    expect(member?.date_of_birth).toBe('1997-08-20') // Excel serial 35662
+    expect(member?.civil_status).toBe('SINGLE')
+
+    const tagged = byName('CRISOSTOMO')
+    expect(tagged?.tags).toContain('AKAP')
+    expect(tagged?.household_no).toBe('LP-TOPAS-SOGOD-F002')
+  })
+})

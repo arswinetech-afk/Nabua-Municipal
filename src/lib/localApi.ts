@@ -970,6 +970,23 @@ export class LocalApi implements RegistryApi {
 
     const status: PersonStatus = collide || opts?.confirmedDistinct ? 'FOR_REVIEW' : 'ACTIVE'
     const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : uid('p')
+    // Paper-list family grouping (LP-TOPAS): resolve or create the household
+    // on the device exactly like fn_create_person does on the server.
+    let householdId: string | null = null
+    const hhNo = input.household_no?.trim()
+    if (hhNo) {
+      let hh = this.db.households.find((h) => h.household_no === hhNo)
+      if (!hh && input.barangay_id) {
+        hh = {
+          id: uid('hh'), household_no: hhNo, barangay_id: input.barangay_id,
+          barangay_name: this.db.barangays.find((b) => b.id === input.barangay_id)?.name ?? '',
+          address: null, purok: null, head_person_id: null, created_at: nowIso(),
+        }
+        this.db.households.push(hh)
+      }
+      householdId = hh?.id ?? null
+    }
+
     const person: Person = {
       id,
       reference_no: `NMBR-${(2600 + this.db.persons.length).toString().padStart(6, '0')}`,
@@ -988,7 +1005,9 @@ export class LocalApi implements RegistryApi {
       remarks: collide ? 'Verified as a different person with identical details — queued for supervisor review.'
         : input.remarks ?? null,
       classification_code: input.classification_code ?? null,
-      household_id: null,
+      tags: input.tags?.filter((t) => t.trim()) ?? [],
+      occupation: input.occupation?.trim() || null,
+      household_id: householdId,
       created_at: nowIso(),
       updated_at: nowIso(),
       created_by: this.current?.id ?? null,
@@ -1091,6 +1110,9 @@ export class LocalApi implements RegistryApi {
       if (value !== undefined) (merged as unknown as Record<string, unknown>)[key] = (value as string)?.trim?.() || null
     }
     if (patch.date_of_birth !== undefined) merged.date_of_birth = normalizeDate(patch.date_of_birth) || null
+    if (patch.classification_code !== undefined) merged.classification_code = patch.classification_code || null
+    if (patch.tags !== undefined) merged.tags = (patch.tags ?? []).filter((t) => t.trim())
+    if (patch.occupation !== undefined) merged.occupation = patch.occupation?.trim() || null
     merged.updated_at = nowIso()
     merged.updated_by_name = this.current?.name ?? null
 

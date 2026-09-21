@@ -32,6 +32,12 @@ export function personColumns({
         ? <span className="text-xs">{formatDate(p.date_of_birth)}</span>
         : <Badge tone="warning">Missing</Badge>),
     },
+    {
+      key: 'tags', header: 'Tags', value: (p) => (p.tags ?? []).join(', '),
+      render: (p) => (p.tags?.length ? (
+        <span className="flex flex-wrap gap-1">{p.tags.map((t) => <Badge key={t} tone="info">{t}</Badge>)}</span>
+      ) : <span className="text-xs">—</span>),
+    },
     { key: 'sex', header: 'Sex', value: (p) => p.sex ?? '—', render: (p) => <span className="text-xs">{p.sex ? (p.sex === 'MALE' ? 'Male' : 'Female') : '—'}</span> },
     { key: 'purok', header: 'Purok / Sitio', value: (p) => p.purok ?? '—', defaultHidden: false },
     {

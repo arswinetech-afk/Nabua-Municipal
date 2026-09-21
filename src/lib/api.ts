@@ -43,6 +43,10 @@ export type PersonInput = {
   status?: string | null
   remarks?: string | null
   classification_code?: string | null
+  tags?: string[] | null
+  occupation?: string | null
+  /** paper-list family number; the server resolves or creates the household */
+  household_no?: string | null
 }
 
 export type CreatePersonResult = {

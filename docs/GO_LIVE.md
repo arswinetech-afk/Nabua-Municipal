@@ -400,3 +400,20 @@ server-side gates.
 already included in `setup/NMBR-supabase-setup.sql`). Until it is run, the
 Subsidies page reports the honest "waiting for the server setup" state
 instead of failing silently.
+
+### 10a. Paper-list tags and households (migration 0013)
+
+Barangay programme lists such as LP-TOPAS carry more than identity: family
+leaders and heads, occupations, and programme tags in the remarks columns
+(AKAP, AICS/4PS, …). Migration 0013 adds `persons.tags` (a text array) and
+`persons.occupation`, and teaches `fn_create_person` to resolve or create the
+household from a paper-list family number (`household_no`), so the family
+grouping of the list survives the import. Tags appear as badges on the member
+list and profile, ride along in Excel/PDF extracts, and can be corrected on
+the profile with an audited edit. The importer flattens the side-by-side
+LP-TOPAS layout (leader / head / member blocks, Excel serial birthdates,
+title rows) into canonical rows — REGRESSION 14 proves it.
+
+The §10 boundary covers tags too: they are **labels, never rules**. Nothing
+in the system — subsidy lists included — includes or excludes a member
+because of a tag, exactly as nothing does because of a classification code.

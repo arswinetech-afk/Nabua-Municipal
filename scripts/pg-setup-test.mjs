@@ -263,6 +263,43 @@ try {
 check('after the first sign-in the bootstrap window is closed',
   /BOOTSTRAP_REFUSED/.test(closedError), closedError.slice(0, 60))
 
+// MIGRATION 0013: paper-list tags, occupation and household grouping
+// (the demo actor was deactivated by the cleanup above; re-point the session
+// at the bootstrap administrator, which is still active)
+const liveActor = (await db.query(
+  `select id from users where email = 'bootstrap.first@nabua.gov.ph'`)).rows[0]?.id
+await db.query(`select set_config('nmbr.actor', $1, false)`, [liveActor])
+const brgy = (await db.query(
+  `insert into barangays (name) values ('Topas Sogod') returning id`)).rows[0]?.id
+const led = (await db.query(`select fn_create_person($1) as r`, [JSON.stringify({
+  first_name: 'Led', last_name: 'Familia', barangay_id: brgy,
+  household_no: 'SOGOD-F001', tags: ['FAMILY LEADER', 'AKAP'], occupation: 'BO',
+})])).rows[0]?.r
+check('a paper-list leader imports with tags, occupation and a household',
+  led?.ok === true && JSON.stringify(led?.person?.tags) === '["AKAP","FAMILY LEADER"]'
+  && led?.person?.occupation === 'BO' && !!led?.person?.household_id,
+  JSON.stringify(led?.person?.tags ?? led))
+const mem = (await db.query(`select fn_create_person($1) as r`, [JSON.stringify({
+  first_name: 'Meb', last_name: 'Familia', barangay_id: brgy,
+  household_no: 'SOGOD-F001', tags: 'FAMILY MEMBER',
+})])).rows[0]?.r
+check('the second family member joins the same household; a string tag is accepted',
+  mem?.ok === true && mem?.person?.household_id === led?.person?.household_id
+  && JSON.stringify(mem?.person?.tags) === '["FAMILY MEMBER"]',
+  JSON.stringify(mem?.person?.household_id ?? mem))
+const hh = (await db.query(
+  `select count(*)::int n from households where household_no = 'SOGOD-F001'`)).rows[0]?.n
+check('the household was created exactly once', hh === 1, `(${hh})`)
+const retag = (await db.query(`select fn_update_person($1, $2, $3) as r`,
+  [led?.person?.id, JSON.stringify({ tags: ['AKAP', 'AICS/4PS'] }), 'tag correction'])).rows[0]?.r
+check('tags can be corrected later and stay an array',
+  retag?.ok === true && JSON.stringify(retag?.person?.tags) === '["AICS/4PS","AKAP"]',
+  JSON.stringify(retag?.person?.tags ?? retag))
+const searched = (await db.query(
+  `select fn_search_persons(p_query => 'Familia') -> 'rows' -> 0 -> 'tags' as t`)).rows[0]?.t
+check('search results carry the tags so lists can show them',
+  Array.isArray(searched) && searched.includes('AKAP'), JSON.stringify(searched))
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'
