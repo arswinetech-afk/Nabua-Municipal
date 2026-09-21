@@ -381,6 +381,25 @@ check('the commit processes chunks and closes the batch only when nothing remain
   && Number(closed?.imported_rows) === Number(chunk1?.imported) + Number(chunk2?.imported),
   JSON.stringify({ chunk1, chunk2, closed }))
 
+// MIGRATION 0023: the last active system admin cannot be demoted or deactivated
+const actorRow = (await db.query(
+  `select id, name, email from users where id = $1`, [liveActor])).rows[0]
+const demote = (await db.query(`select fn_upsert_user($1::jsonb) as r`, [JSON.stringify({
+  id: actorRow.id, name: actorRow.name, email: actorRow.email, role: 'ADMINISTRATOR', active: true,
+})])).rows[0]?.r
+check('the last active system admin cannot be demoted',
+  demote?.ok === false && /last active System Administrator/i.test(demote?.error ?? ''),
+  JSON.stringify(demote))
+const second = (await db.query(
+  `insert into users (name, email, role, active)
+   values ('Second Sysadmin', 'second.sysadmin@test.local', 'SYSTEM_ADMIN', true) returning id`)).rows[0]?.id
+const demote2 = (await db.query(`select fn_upsert_user($1::jsonb) as r`, [JSON.stringify({
+  id: actorRow.id, name: actorRow.name, email: actorRow.email, role: 'ADMINISTRATOR', active: true,
+})])).rows[0]?.r
+check('with a second active system admin the demotion is allowed', demote2?.ok === true, JSON.stringify(demote2))
+await db.query(`update users set role = 'SYSTEM_ADMIN' where id = $1`, [actorRow.id])
+await db.query(`update users set active = false where id = $1`, [second])
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'
