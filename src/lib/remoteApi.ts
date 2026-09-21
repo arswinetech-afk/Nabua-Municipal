@@ -709,10 +709,12 @@ export class RemoteApi implements RegistryApi {
     }
   }
 
-  async importSetAllDecisions(batchId: string, severity: string | null, decision: string): Promise<ApiResult<unknown>> {
+  async importSetAllDecisions(
+    batchId: string, severity: string | null, decision: string, duplicatesOnly = false,
+  ): Promise<ApiResult<{ updated?: number }>> {
     try {
       const res = await this.rpc<{ ok: boolean; updated?: number; error?: string }>('fn_import_set_all_decisions', {
-        p_batch_id: batchId, p_severity: severity, p_decision: decision,
+        p_batch_id: batchId, p_severity: severity, p_decision: decision, p_duplicates_only: duplicatesOnly,
       })
       return res?.ok ? { ok: true, data: res } : { ok: false, error: res?.error ?? 'Could not update the rows.' }
     } catch (err) {

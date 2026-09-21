@@ -315,6 +315,18 @@ check('chunked staging accepts 122 rows across three statements',
 check('the finalize pass flags the in-file twin pair once',
   fin?.ok === true && Number(fin?.in_file_duplicates) >= 1, JSON.stringify(fin))
 
+// MIGRATION 0016: clean rows default to IMPORT; duplicates-only bulk scope
+const defDec = (await db.query(
+  `select count(*)::int n from import_rows where batch_id = $1 and severity = 'OK' and decision <> 'IMPORT'`, [bid])).rows[0]?.n
+check('clean staged rows default to the Import decision', Number(defDec) === 0, `(${defDec})`)
+const dupSkip = (await db.query(
+  `select fn_import_set_all_decisions($1, null, 'SKIP', true) as r`, [bid])).rows[0]?.r
+const stillImport = (await db.query(
+  `select count(*)::int n from import_rows where batch_id = $1 and decision = 'IMPORT'`, [bid])).rows[0]?.n
+check('the duplicates-only bulk skip touches twins and leaves clean rows importing',
+  dupSkip?.ok === true && Number(dupSkip?.updated) >= 1 && Number(stillImport) > 0,
+  JSON.stringify({ dupSkip, stillImport }))
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'

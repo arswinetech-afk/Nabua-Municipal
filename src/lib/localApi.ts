@@ -1571,21 +1571,26 @@ export class LocalApi implements RegistryApi {
     return { ok: false, error: 'Import row not found.' }
   }
 
-  async importSetAllDecisions(batchId: string, severity: string | null, decision: string): Promise<ApiResult<unknown>> {
+  async importSetAllDecisions(
+    batchId: string, severity: string | null, decision: string, duplicatesOnly = false,
+  ): Promise<ApiResult<{ updated?: number }>> {
     const denial = this.require(['ADMINISTRATOR', 'SYSTEM_ADMIN'])
     if (denial) return denial
     const batch = this.db.importBatches.find((b) => b.id === batchId)
-    if (!batch) return { ok: false, error: 'Import batch not found.' }
-    let updated = 0
+    if (!batch) return { ok: false, error: 'Import batch not found.', code: 'NOT_FOUND' }
+    let n = 0
     for (const row of batch.rows) {
       if (severity && row.severity !== severity) continue
       if (decision === 'IMPORT' && row.severity === 'ERROR') continue
+      if (duplicatesOnly && !((row.issues ?? []).includes('DUPLICATE_IN_FILE') || row.match_score != null)) continue
       row.decision = decision as ImportRow['decision']
-      updated++
+      n += 1
     }
     this.persist()
-    return { ok: true, data: { updated } }
+    return { ok: true, data: { updated: n } }
   }
+
+
 
   async importCommit(batchId: string, _defaultBarangayId?: string | null): Promise<ApiResult<{
     imported: number; duplicates_parked: number; skipped: number; linked: number; message: string

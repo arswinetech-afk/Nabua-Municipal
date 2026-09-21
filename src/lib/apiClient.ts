@@ -784,11 +784,13 @@ export class ApiClient implements RegistryApi {
     return this.local.importSetDecision(rowId, decision)
   }
 
-  importSetAllDecisions(batchId: string, severity: string | null, decision: string): Promise<ApiResult<unknown>> {
+  importSetAllDecisions(
+    batchId: string, severity: string | null, decision: string, duplicatesOnly?: boolean,
+  ): Promise<ApiResult<{ updated?: number }>> {
     if (this.usingServer && this.remote && !batchId.startsWith('ib')) {
-      return this.remote.importSetAllDecisions(batchId, severity, decision)
+      return this.remote.importSetAllDecisions(batchId, severity, decision, duplicatesOnly)
     }
-    return this.local.importSetAllDecisions(batchId, severity, decision)
+    return this.local.importSetAllDecisions(batchId, severity, decision, duplicatesOnly)
   }
 
   importCommit(batchId: string, defaultBarangayId?: string | null): Promise<ApiResult<{

@@ -272,12 +272,29 @@ export default function Imports() {
     await refreshRows()
   }
 
-  const setAll = async (severity: string | null, decision: 'IMPORT' | 'SKIP') => {
+  const setAll = async (
+    severity: string | null, decision: 'IMPORT' | 'SKIP', duplicatesOnly = false, label?: string,
+  ) => {
     if (!batchId) return
     setBusy(true)
-    await api.importSetAllDecisions(batchId, severity, decision)
-    await refreshRows()
-    setBusy(false)
+    try {
+      const res = await api.importSetAllDecisions(batchId, severity, decision, duplicatesOnly)
+      if (!res.ok) {
+        toast.push({ tone: 'error', title: 'Decisions not changed', message: res.error })
+        return
+      }
+      const n = res.data.updated ?? 0
+      toast.push({
+        tone: n > 0 ? 'success' : 'warning',
+        title: n > 0 ? `${n} row(s) set to ${decision === 'SKIP' ? 'Skip' : 'Import'}` : 'No rows matched that action',
+        message: n > 0
+          ? (label ?? 'Bulk decision applied.')
+          : 'Nothing in this batch matches that filter — the buttons act only on matching rows.',
+      })
+      await refreshRows()
+    } finally {
+      setBusy(false)
+    }
   }
 
   const commit = async () => {
@@ -734,8 +751,11 @@ export default function Imports() {
                 />
 
                 <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
-                  <Button variant="secondary" size="sm" loading={busy} onClick={() => void setAll('ERROR', 'SKIP')}>
+                  <Button variant="secondary" size="sm" loading={busy} onClick={() => void setAll('ERROR', 'SKIP', false, 'Every row the validation blocked is now skipped.')}>
                     Skip all error rows
+                  </Button>
+                  <Button variant="secondary" size="sm" loading={busy} onClick={() => void setAll(null, 'SKIP', true, 'In-file twins and registry clashes skipped; clean rows keep their decision.')}>
+                    Skip duplicates only
                   </Button>
                   <Button variant="secondary" size="sm" loading={busy} onClick={() => void setAll(null, 'SKIP')}>
                     Skip everything
