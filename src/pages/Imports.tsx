@@ -260,11 +260,27 @@ export default function Imports() {
     }
   }
 
+  // FIELD REPORT 2026-09-21 (16:17): batches staged before migration 0016 keep
+  // their clean rows at "Undecided", so the commit button reads "Import 0".
+  // Opening the review step now normalises OK rows to Import once per batch,
+  // whatever the server's staging defaults were at the time.
+  const normalisedBatches = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (step !== 9 || !batchId || normalisedBatches.current.has(batchId)) return
+    normalisedBatches.current.add(batchId)
+    void (async () => {
+      const res = await api.importSetAllDecisions(batchId, 'OK', 'IMPORT')
+      if (res.ok && (res.data.updated ?? 0) > 0) await refreshRowsRef.current()
+    })()
+  }, [step, batchId, api])
+
   const refreshRows = useCallback(async () => {
     if (!batchId) return
     setRows(await api.importRows(batchId, { limit: 500 }))
     setSummary(await api.importSummary(batchId))
   }, [api, batchId])
+  const refreshRowsRef = useRef(refreshRows)
+  refreshRowsRef.current = refreshRows
 
   const setDecision = async (rowId: string | number, decision: 'IMPORT' | 'SKIP' | 'LINK') => {
     if (!batchId) return
