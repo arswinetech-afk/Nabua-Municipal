@@ -89,6 +89,7 @@ export default function Imports() {
   const [committed, setCommitted] = useState<{ imported: number; duplicates_parked: number; skipped: number; linked: number; message: string } | null>(null)
   const [parseError, setParseError] = useState<string | null>(null)
   const [blockInfo, setBlockInfo] = useState<BlockSection[] | null>(null)
+  const [blockBarangay, setBlockBarangay] = useState<string | null>(null)
 
   const canImport = user && ['ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
 
@@ -117,6 +118,13 @@ export default function Imports() {
       const prefix = (workbook.SheetNames[0] || f.name.replace(/\.[a-z0-9]+$/i, '')).toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 24) || 'LIST'
       const blocks = parseBlockSheet(grid, { householdPrefix: prefix })
       if (blocks.detected) {
+        // The list's own title block names the barangay; honour it as the
+        // default so 1,000+ rows don't each fail the barangay check.
+        if (blocks.meta.barangay) {
+          const named = barangays.find((b) => b.name.toLowerCase() === blocks.meta.barangay!.toLowerCase())
+          if (named) setDefaultBarangay(named.id)
+          else setBlockBarangay(blocks.meta.barangay)
+        }
         setBlockInfo(blocks.sections)
         setHeaders(blocks.headers)
         setRawRows(blocks.rows as unknown as Array<Record<string, unknown>>)
@@ -129,6 +137,7 @@ export default function Imports() {
         return
       }
       setBlockInfo(null)
+      setBlockBarangay(null)
       const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
       if (json.length === 0) {
         setParseError('The file has no data rows. Check the sheet and header row.')
@@ -428,6 +437,13 @@ export default function Imports() {
                   household number taken from the head rows, and the section roles plus the remarks codes
                   (AKAP, AICS/4PS, …) are kept as visible tags.
                 </span>
+                {blockBarangay && (
+                  <span className="w-full rounded border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900">
+                    The list's title block says barangay <strong>{blockBarangay}</strong>, which is not in the
+                    registry yet. Add it under Barangays (or choose a default barangay below) before continuing —
+                    otherwise every row is blocked.
+                  </span>
+                )}
               </div>
             </Card>
           )}

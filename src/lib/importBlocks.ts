@@ -31,6 +31,8 @@ export type BlockParseResult = {
   /** canonical rows: keys are the importer's field names */
   rows: Array<Record<string, string>>
   headers: string[]
+  /** municipality/barangay read from the title block above the headers */
+  meta: { municipality?: string; barangay?: string }
 }
 
 export const BLOCK_CANONICAL_HEADERS = [
@@ -62,7 +64,7 @@ function fieldForKey(k: string): string | null {
   if (k === 'zonestreet' || k === 'zone' || k === 'sitio' || k === 'purok') return 'purok'
   if (k === 'contactno' || k === 'contact' || k === 'mobile' || k === 'phone') return 'contact_number'
   if (k.startsWith('bdate') || k === 'dateofbirth' || k === 'birthdate' || k === 'dob' || k.includes('mmdyyyy')) return 'date_of_birth'
-  if (k === 'sex' || k === 'gender') return 'sex'
+  if (k === 'sex' || k.startsWith('sex') || k === 'gender') return 'sex'
   if (k === 'civilstat' || k === 'civilstatus' || k === 'maritalstatus') return 'civil_status'
   if (k === 'occupation' || k === 'job' || k === 'trabaho') return 'occupation'
   if (k === 'remarks' || k === 'notes' || k === 'tagging') return 'remarks'
@@ -74,8 +76,25 @@ export function parseBlockSheet(
   grid: unknown[][],
   opts: { householdPrefix: string },
 ): BlockParseResult {
-  const empty: BlockParseResult = { detected: false, sections: [], rows: [], headers: [] }
+  const empty: BlockParseResult = { detected: false, sections: [], rows: [], headers: [], meta: {} }
   if (!grid?.length) return empty
+
+  // ---- title block: "MUNICIPALITY | NABUA", "BARANGAY | TOPAS SOGOD"
+  const meta: { municipality?: string; barangay?: string } = {}
+  for (let r = 0; r < Math.min(grid.length, 12); r++) {
+    for (let c = 0; c < (grid[r]?.length ?? 0); c++) {
+      const label = key(CELL(grid, r, c))
+      if (label !== 'municipality' && label !== 'barangay') continue
+      for (let cc = c + 1; cc < (grid[r]?.length ?? 0); cc++) {
+        const v = CELL(grid, r, cc)
+        if (v) {
+          if (label === 'municipality') meta.municipality = v
+          else meta.barangay = v
+          break
+        }
+      }
+    }
+  }
 
   // ---- locate the header row: the first row repeating "Surname" per block
   let headerRow = -1
@@ -159,5 +178,6 @@ export function parseBlockSheet(
     sections,
     rows: ordered.map((x) => x.rec),
     headers: [...BLOCK_CANONICAL_HEADERS],
+    meta,
   }
 }

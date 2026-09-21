@@ -935,7 +935,7 @@ describe('REGRESSION 14 — the side-by-side paper-list layout imports as famili
   const H = (block: string[]) => block
   const leaderHead = ['NO.', 'Surname', 'First Name', 'Middle Name', 'Ext. Name', 'Zone/ Street', 'Contact No.', 'Bdate (MM/DD/YYYY)', 'SEX', 'CIVIL STAT.', 'OCCUPATION']
   const headHead = [...leaderHead, 'Remarks']
-  const memberHead = ['NO.', 'Surname', 'First name', 'Middle Name', 'Ext. Name', 'Zone/ Street', 'Contact No.', 'Bdate (MM/DD/YYYY)', 'SEX', 'CIVIL STAT.', 'Occupation', 'Remarks']
+  const memberHead = ['NO.', 'Surname', 'First name', 'Middle Name', 'Ext. Name', 'Zone/ Street', 'Contact No.', 'Bdate (MM/DD/YYYY)', 'SEX (F/M)', 'CIVIL STAT.', 'Occupation', 'Remarks']
   const pad = (row: unknown[], width: number) => { const r = [...row]; while (r.length < width) r.push(''); return r }
 
   const grid: unknown[][] = [
@@ -987,6 +987,8 @@ describe('REGRESSION 14 — the side-by-side paper-list layout imports as famili
     expect(member?.household_no).toBe('LP-TOPAS-SOGOD-F001') // aligned under head 1
     expect(member?.date_of_birth).toBe('1997-08-20') // Excel serial 35662
     expect(member?.civil_status).toBe('SINGLE')
+    expect(member?.sex).toBe('F') // 'SEX (F/M)' header must still map
+    expect(out.meta.barangay).toBe('TOPAS SOGOD') // title block read
 
     const tagged = byName('CRISOSTOMO')
     expect(tagged?.tags).toContain('AKAP')
