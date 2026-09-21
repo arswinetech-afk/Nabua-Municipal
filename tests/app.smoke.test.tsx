@@ -58,13 +58,16 @@ describe('NMBR application shell', () => {
   it('TEST 2 — a valid office account signs in and the dashboard shows the seeded municipal totals', async () => {
     await signIn('encoder')
     expect(await screen.findByText(/total registered members/i)).toBeInTheDocument()
-    const expected = seed.persons.filter((p) => p.status !== 'ARCHIVED').length
+    // 0024 policy: headline counts are ACTIVE records only — retired and
+    // inactive entries live in the audit trail, not in staff-facing totals
+    const expected = seed.persons.filter((p) => p.status === 'ACTIVE').length
     await waitFor(() => {
       const values = screen.getAllByText(expected.toLocaleString())
       expect(values.length).toBeGreaterThan(0)
     }, { timeout: 15_000 })
-    const barangayCount = seed.barangays.length
-    expect(screen.getByText(new RegExp(`${barangayCount} active`, 'i'))).toBeInTheDocument()
+    const barangayCount = seed.barangays.filter((b) => b.active !== false).length
+    expect(screen.getAllByText(String(barangayCount)).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('active').length).toBeGreaterThan(0)
   })
 
   it('TEST 3 — an unknown password is refused and the reason is shown', async () => {

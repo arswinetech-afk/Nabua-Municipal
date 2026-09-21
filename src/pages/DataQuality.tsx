@@ -172,7 +172,7 @@ export default function DataQuality() {
           <p className="mt-1 text-2xl font-bold text-ink">
             {loading ? <Skeleton className="h-7 w-16" /> : barangays.reduce((a, b) => a + (b.total_members ?? 0), 0).toLocaleString()}
           </p>
-          <p className="mt-1 text-[11px] text-ink-soft">Master records counted across {barangays.length} barangays</p>
+          <p className="mt-1 text-[11px] text-ink-soft">Master records counted across {barangays.filter((b) => b.active).length} barangays</p>
         </Card>
       </div>
 

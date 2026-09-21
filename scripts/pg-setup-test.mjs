@@ -353,6 +353,16 @@ const gate = (await db.query(`select fn_score_json(
 const gateSame = (await db.query(`select fn_score_json(
   '{"first_name":"MARIA","last_name":"SANTOS","date_of_birth":"1980-05-05","sex":"FEMALE","address":"P1 SITIO A","barangay_name":"TANDAAY"}'::jsonb,
   '{"first_name":"MARIA","last_name":"SANTOS","date_of_birth":"1980-05-05","sex":"FEMALE","address":"P1 SITIO A","barangay_name":"TANDAAY"}'::jsonb) as r`)).rows[0]?.r
+const gateLast = (await db.query(`select fn_score_json(
+  '{"first_name":"MICHAEL","middle_name":"FABRICANTE","last_name":"SALAZAR","sex":"MALE","address":"P2 STO DOMINGO","barangay_name":"STO. DOMINGO"}'::jsonb,
+  '{"first_name":"EDWARD","middle_name":"BARCELON","last_name":"SALAZAR","sex":"MALE","address":"P2 STO DOMINGO","barangay_name":"STO. DOMINGO"}'::jsonb) as r`)).rows[0]?.r
+const gateTypo = (await db.query(`select fn_score_json(
+  '{"first_name":"ROSALINDA","last_name":"DELA CRUZ","date_of_birth":"1975-03-03","sex":"FEMALE"}'::jsonb,
+  '{"first_name":"ROSALINDA","last_name":"DELA CRUZ","date_of_birth":"1975-03-03","sex":"FEMALE"}'::jsonb) as r`)).rows[0]?.r
+check('same surname with a different given name is not a duplicate',
+  Number(gateLast?.score) <= 30 && Number(gateTypo?.score) >= 90,
+  JSON.stringify({ gateLast: gateLast?.score, gateTypo: gateTypo?.score }))
+
 check('different names with shared sex/address/dob stay out of the duplicate queue',
   Number(gate?.score) <= 30 && Number(gateSame?.score) >= 90,
   JSON.stringify({ gate: gate?.score, gateSame: gateSame?.score }))
