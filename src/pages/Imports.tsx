@@ -162,8 +162,12 @@ export default function Imports() {
   const detected = useMemo(() => Object.entries(mapping).filter(([, v]) => v), [mapping])
 
   const implausibleDobs = useRef<Array<{ row: number; value: string }>>([])
+  const collapsedExact = useRef<Array<{ row: number; dupOf: number }>>([])
   const normalised = useMemo<PersonInput[]>(() => {
     const rejected: Array<{ row: number; value: string }> = []
+    const collapsed: Array<{ row: number; dupOf: number }> = []
+    const seenExact = new Map<string, number>()
+    const fileRow: number[] = []
     const rows = rawRows.map((row, rowIdx) => {
       const pick = (field: string) => {
         const header = mapping[field]
@@ -218,11 +222,43 @@ export default function Imports() {
         tags: pick('tags') ? pick('tags').split(/[;,]/).map((t) => t.trim()).filter(Boolean) : null,
         occupation: pick('occupation') || null,
         household_no: pick('household_no') || null,
-      } as PersonInput
+      ...{ __fileRow: rowIdx + 1 },
+      } as PersonInput & { __fileRow: number }
+    }).filter((person) => {
+      // FIELD REPORT 2026-09-22: "there is always a duplicate for every
+      // import file entry". Perfectly identical rows (every field equal)
+      // are collapsed at read time — a resident encoded twice in the sheet,
+      // or a converter/print-range artefact — and the wizard reports exactly
+      // which file rows were collapsed, so the claim can be checked in Excel.
+      const keyed = person as PersonInput & { __fileRow: number }
+      const { __fileRow, ...clean } = keyed
+      const key = JSON.stringify(clean)
+      const first = seenExact.get(key)
+      if (first !== undefined) {
+        collapsed.push({ row: __fileRow, dupOf: first })
+        return false
+      }
+      seenExact.set(key, __fileRow)
+      delete (person as Record<string, unknown>).__fileRow
+      return true
     })
     implausibleDobs.current = rejected
+    collapsedExact.current = collapsed
     return rows
   }, [rawRows, mapping, barangays, defaultBarangay])
+
+  // tell the operator, with evidence, when the file itself carried copies
+  useEffect(() => {
+    const c = collapsedExact.current
+    if (c.length === 0) return
+    const samples = c.slice(0, 3).map((x) => `row ${x.row} = row ${x.dupOf}`).join(', ')
+    toast.push({
+      tone: 'warning',
+      title: `${c.length} identical cop(y/ies) collapsed from the file`,
+      message: `The sheet repeats these rows word for word: ${samples}${c.length > 3 ? '…' : ''}. One copy each will be staged; near-duplicates still appear as review cards.`,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawRows])
 
   const validation = useMemo(() => {
     const issues: Array<{ row: number; severity: 'WARNING' | 'ERROR'; message: string }> = []

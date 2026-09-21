@@ -653,17 +653,54 @@ export class RemoteApi implements RegistryApi {
       // hit the database statement timeout at ~1,000 rows ("canceling
       // statement due to statement timeout"). 60 rows stays well under it.
       const CHUNK = 60
-      const first = rows.slice(0, CHUNK)
-      const res = await this.rpc<{ ok: boolean; batch_id: string; error?: string }>('fn_import_create_batch', {
-        p_file_name: fileName,
-        p_mapping: { default_barangay_id: defaultBarangayId ?? null },
-        p_rows: first,
-      })
-      if (!res?.ok) return { ok: false, error: res?.error ?? 'Could not create the import batch.' }
-      onProgress?.(first.length, rows.length)
+      let done = 0
+      // FIELD REPORT 2026-09-22 (02:19): staging died at "120 of 854" because
+      // one slow chunk aborted the whole batch. Chunks now halve and retry on
+      // a statement timeout until they fit; only a slice below 8 rows that
+      // still times out gives up.
+      const pushRows = async (batchId: string, slice: PersonInput[]): Promise<ApiResult<unknown>> => {
+        try {
+          await this.rpc('fn_import_add_rows', { p_batch_id: batchId, p_rows: slice })
+          done += slice.length
+          onProgress?.(done, rows.length)
+          return { ok: true, data: null }
+        } catch (err) {
+          const e = parseDbError(err)
+          if (!/timeout/i.test(e.message) || slice.length <= 8) return { ok: false, error: e.message, code: e.code }
+          const mid = Math.ceil(slice.length / 2)
+          const a = await pushRows(batchId, slice.slice(0, mid))
+          if (!a.ok) return a
+          return pushRows(batchId, slice.slice(mid))
+        }
+      }
+      const createBatch = async (slice: PersonInput[]): Promise<ApiResult<{ batch_id: string }>> => {
+        try {
+          const created = await this.rpc<{ ok: boolean; batch_id: string; error?: string }>('fn_import_create_batch', {
+            p_file_name: fileName,
+            p_mapping: { default_barangay_id: defaultBarangayId ?? null },
+            p_rows: slice,
+          })
+          if (!created?.ok) return { ok: false, error: created?.error ?? 'Could not create the import batch.' }
+          done += slice.length
+          onProgress?.(done, rows.length)
+          return { ok: true, data: { batch_id: created.batch_id } }
+        } catch (err) {
+          const e = parseDbError(err)
+          if (!/timeout/i.test(e.message) || slice.length <= 8) return { ok: false, error: e.message, code: e.code }
+          const mid = Math.ceil(slice.length / 2)
+          const a = await createBatch(slice.slice(0, mid))
+          if (!a.ok) return a
+          const b = await pushRows(a.data.batch_id, slice.slice(mid))
+          if (!b.ok) return { ok: false, error: b.error }
+          return a
+        }
+      }
+      const createdBatch = await createBatch(rows.slice(0, CHUNK))
+      if (!createdBatch.ok) return { ok: false, error: createdBatch.error }
+      const res = createdBatch.data
       for (let i = CHUNK; i < rows.length; i += CHUNK) {
-        await this.rpc('fn_import_add_rows', { p_batch_id: res.batch_id, p_rows: rows.slice(i, i + CHUNK) })
-        onProgress?.(Math.min(i + CHUNK, rows.length), rows.length)
+        const pushed = await pushRows(res.batch_id, rows.slice(i, i + CHUNK))
+        if (!pushed.ok) return { ok: false, error: pushed.error }
       }
       // In-file duplicate scan runs once over the whole batch (migration 0014,
       // capped in 0015). If it cannot finish right now the rows are already
