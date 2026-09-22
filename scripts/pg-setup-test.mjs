@@ -449,6 +449,19 @@ check('the tag bridge previews, adds every AKAP member once, and keeps rows pend
   && (tagCounts?.rows ?? []).some((t) => t.tag === 'AKAP'),
   JSON.stringify({ dryBridge, applyBridge, reBridge, pendBridge }))
 
+// MIGRATION 0028: staged rows keep their true Excel row number across chunks
+const rnBatch = (await db.query(`select fn_import_create_batch($1, $2, $3) as r`,
+  ['rowno.xlsx', '{}', JSON.stringify([
+    { ...twin, first_name: 'Row', last_name: 'NoOne', __fileRow: 5 },
+    { ...twin, first_name: 'Row', last_name: 'NoTwo', __fileRow: 6 }])])).rows[0]?.r
+await db.query(`select fn_import_add_rows($1, $2) as r`, [rnBatch?.batch_id, JSON.stringify([
+  { ...twin, first_name: 'Row', last_name: 'NoThree', __fileRow: 7 },
+  { ...twin, first_name: 'Row', last_name: 'NoFour', __fileRow: 8 }])])
+const rnRows = (await db.query(
+  `select row_no from import_rows where batch_id = $1 order by row_no`, [rnBatch?.batch_id])).rows.map((x) => x.row_no)
+check('staged rows keep their true file row number across staging chunks',
+  JSON.stringify(rnRows) === '[5,6,7,8]', JSON.stringify(rnRows))
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'

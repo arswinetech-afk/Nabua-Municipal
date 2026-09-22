@@ -272,7 +272,9 @@ export default function Imports() {
         return false
       }
       seenExact.set(key, __fileRow)
-      delete (person as Record<string, unknown>).__fileRow
+      // __fileRow stays on the staged payload: the server stores it as the
+      // row number, so the review list always shows the TRUE Excel row even
+      // though staging uploads in chunks (field report 2026-09-22 13:42).
       return true
     })
     implausibleDobs.current = rejected
@@ -296,15 +298,16 @@ export default function Imports() {
   const validation = useMemo(() => {
     const issues: Array<{ row: number; severity: 'WARNING' | 'ERROR'; message: string }> = []
     normalised.forEach((p, i) => {
-      if (!p.first_name && !p.last_name) issues.push({ row: i + 1, severity: 'ERROR', message: 'No name could be read from this row.' })
-      if (p.date_of_birth && !normalizeDate(p.date_of_birth)) issues.push({ row: i + 1, severity: 'ERROR', message: `Unreadable birthdate “${p.date_of_birth}”.` })
-      const rej = implausibleDobs.current.find((x) => x.row === i + 1)
-      if (rej) issues.push({ row: i + 1, severity: 'WARNING', message: `Implausible birthdate “${rej.value}” removed — the row imports without it; restore the date in the member record later.` })
-      if (!p.date_of_birth && !rej) issues.push({ row: i + 1, severity: 'WARNING', message: 'Missing birthdate — duplicates are harder to detect.' })
-      if (!p.sex) issues.push({ row: i + 1, severity: 'WARNING', message: 'Missing sex.' })
-      if (!p.middle_name) issues.push({ row: i + 1, severity: 'WARNING', message: 'Missing middle name — check for a hidden duplicate.' })
-      if (p.contact_number && p.contact_number.replace(/\D/g, '').length < 7) issues.push({ row: i + 1, severity: 'WARNING', message: 'Contact number looks incomplete.' })
-      if (!p.barangay_id) issues.push({ row: i + 1, severity: 'ERROR', message: 'Barangay could not be matched — set a default barangay.' })
+      const rowNo = (p as { __fileRow?: number }).__fileRow ?? i + 1
+      if (!p.first_name && !p.last_name) issues.push({ row: rowNo, severity: 'ERROR', message: 'No name could be read from this row.' })
+      if (p.date_of_birth && !normalizeDate(p.date_of_birth)) issues.push({ row: rowNo, severity: 'ERROR', message: `Unreadable birthdate “${p.date_of_birth}”.` })
+      const rej = implausibleDobs.current.find((x) => x.row === rowNo)
+      if (rej) issues.push({ row: rowNo, severity: 'WARNING', message: `Implausible birthdate “${rej.value}” removed — the row imports without it; restore the date in the member record later.` })
+      if (!p.date_of_birth && !rej) issues.push({ row: rowNo, severity: 'WARNING', message: 'Missing birthdate — duplicates are harder to detect.' })
+      if (!p.sex) issues.push({ row: rowNo, severity: 'WARNING', message: 'Missing sex.' })
+      if (!p.middle_name) issues.push({ row: rowNo, severity: 'WARNING', message: 'Missing middle name — check for a hidden duplicate.' })
+      if (p.contact_number && p.contact_number.replace(/\D/g, '').length < 7) issues.push({ row: rowNo, severity: 'WARNING', message: 'Contact number looks incomplete.' })
+      if (!p.barangay_id) issues.push({ row: rowNo, severity: 'ERROR', message: 'Barangay could not be matched — set a default barangay.' })
     })
     return issues
   }, [normalised])
@@ -313,12 +316,13 @@ export default function Imports() {
   const inFileDuplicates = useMemo(() => {
     const seen = new Map<string, number[]>()
     normalised.forEach((p, i) => {
+      const rowNo = (p as { __fileRow?: number }).__fileRow ?? i + 1
       const key = [
         String(p.first_name ?? '').toLowerCase().replace(/[^a-z]/g, ''),
         String(p.last_name ?? '').toLowerCase().replace(/[^a-z]/g, ''),
         p.date_of_birth ?? 'no-dob',
       ].join('|')
-      seen.set(key, [...(seen.get(key) ?? []), i + 1])
+      seen.set(key, [...(seen.get(key) ?? []), rowNo])
     })
     return [...seen.entries()].filter(([, rows]) => rows.length > 1).map(([key, rows]) => ({ key, rows }))
   }, [normalised])

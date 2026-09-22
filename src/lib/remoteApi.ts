@@ -798,15 +798,29 @@ export class RemoteApi implements RegistryApi {
     // transaction, so a timeout loses nothing; the next call continues.
     const totals = { imported: 0, duplicates_parked: 0, skipped: 0, linked: 0 }
     let message = 'Import committed.'
-    for (let step = 0; step < 500; step += 1) {
+    // FIELD REPORT 2026-09-22 13:42: "Import failed — canceling statement due
+    // to statement timeout" on a 3,085-row rice list. The commit is resumable
+    // (0018), so a cancelled chunk loses nothing: halve the chunk and carry on
+    // from where it stopped instead of failing the whole import. Only give up
+    // after three consecutive timeouts that wrote nothing at all.
+    let chunk = 60
+    let timeouts = 0
+    for (let step = 0; step < 900; step += 1) {
       let res: CommitChunk | null = null
       try {
         res = await this.rpc<CommitChunk>(
           'fn_import_commit',
-          { p_batch_id: batchId, p_default_barangay: defaultBarangayId ?? null, p_max_rows: 60 },
+          { p_batch_id: batchId, p_default_barangay: defaultBarangayId ?? null, p_max_rows: chunk },
         )
       } catch (err) {
         const e = parseDbError(err)
+        const isTimeout = e.code === '57014' || /statement timeout|query canceled/i.test(e.message)
+        if (isTimeout && timeouts < 3) {
+          timeouts += 1
+          chunk = Math.max(10, Math.floor(chunk / 2))
+          onProgress?.(totals.imported + totals.duplicates_parked + totals.skipped)
+          continue
+        }
         const saved = totals.imported + totals.duplicates_parked + totals.skipped
         return {
           ok: false,
@@ -817,6 +831,11 @@ export class RemoteApi implements RegistryApi {
         }
       }
       if (!res?.ok) return { ok: false, error: res?.error ?? 'Import failed.' }
+      timeouts = 0
+      const progressed = (res.imported ?? 0) + (res.duplicates_parked ?? 0) + (res.skipped ?? 0)
+      if (progressed === 0 && !res.done) {
+        return { ok: false, error: res.message ?? 'The server reported no progress on this step — tap Import again to continue.' }
+      }
       totals.imported += res.imported ?? 0
       totals.duplicates_parked += res.duplicates_parked ?? 0
       totals.skipped += res.skipped ?? 0
