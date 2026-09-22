@@ -140,15 +140,30 @@ export default function Imports() {
       }
       setBlockInfo(null)
       setBlockBarangay(null)
-      const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false })
+      // FIELD REPORT 2026-09-22 (rice-subsidy list): government sheets often
+      // carry a multi-row merged header — group labels above the real field
+      // names. Detect the true header row among the first rows and compose
+      // merged labels so YES/NO check columns become nameable tags ("4PS YES").
+      const filled = fillMergedCells(grid, (sheet as { ['!merges']?: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> })['!merges'] ?? [])
+      let headerIdx = 0
+      let bestScore = -1
+      for (let i = 0; i < Math.min(12, grid.length); i += 1) {
+        const rowCells = (grid[i] ?? []).map((c) => String(c ?? ''))
+        const mapped = Object.values(detectMapping(rowCells)).filter(Boolean).length
+        const score = mapped * 100 + rowCells.filter((c) => c.trim() !== '').length
+        if (mapped >= 2 && score > bestScore) { bestScore = score; headerIdx = i }
+      }
+      const detectedHeaders = composeHeaders(grid, filled, headerIdx)
+      const json = grid.slice(headerIdx + 1)
+        .filter((r) => (r ?? []).some((c) => String(c ?? '').trim() !== ''))
+        .map((r) => Object.fromEntries(detectedHeaders.map((h, i) => [h, (r ?? [])[i] ?? ''])))
       if (json.length === 0) {
         setParseError('The file has no data rows. Check the sheet and header row.')
         setBusy(false)
         return
       }
-      const detectedHeaders = Object.keys(json[0])
       setHeaders(detectedHeaders)
-      setRawRows(json)
+      setRawRows(json as unknown as Array<Record<string, unknown>>)
       setMapping(detectMapping(detectedHeaders))
       setStep(2)
       toast.push({ tone: 'success', title: `${json.length} row(s) read`, message: `${detectedHeaders.length} columns detected in “${f.name}”.` })
@@ -206,7 +221,7 @@ export default function Imports() {
           dob = null
         }
       }
-      return {
+      const built = {
         first_name: normalizeName(first) || first,
         middle_name: normalizeName(middle) || middle || null,
         last_name: normalizeName(last) || last,
@@ -224,6 +239,21 @@ export default function Imports() {
         household_no: pick('household_no') || null,
       ...{ __fileRow: rowIdx + 1 },
       } as PersonInput & { __fileRow: number }
+      // tick columns (SENIOR CITIZEN, 4PS YES, FARMER…) become tags so subsidy
+      // lists carry their sector/programme information into the registry
+      const mappedCols = new Set(Object.values(mapping).filter(Boolean))
+      const tickTags: string[] = []
+      for (const [h, v] of Object.entries(row)) {
+        if (mappedCols.has(h) || h.startsWith('__EMPTY')) continue
+        const t = String(v ?? '').trim()
+        if (/^(✔|✓|v|yes|y|1)$/i.test(t) && !/ NO(_\d+)?$/i.test(h)) {
+          tickTags.push(h.replace(/ YES(_\d+)?$/i, '').trim())
+        }
+      }
+      if (tickTags.length > 0) {
+        built.tags = [...new Set([...(built.tags ?? []), ...tickTags])].slice(0, 12)
+      }
+      return built
     }).filter((person) => {
       // FIELD REPORT 2026-09-22: "there is always a duplicate for every
       // import file entry". Perfectly identical rows (every field equal)
@@ -232,6 +262,9 @@ export default function Imports() {
       // which file rows were collapsed, so the claim can be checked in Excel.
       const keyed = person as PersonInput & { __fileRow: number }
       const { __fileRow, ...clean } = keyed
+      // with an unmapped sheet every row normalises to the same empty shell —
+      // collapsing those would eat the whole file, so only collapse real names
+      if (!clean.first_name && !clean.last_name) return true
       const key = JSON.stringify(clean)
       const first = seenExact.get(key)
       if (first !== undefined) {
@@ -310,6 +343,16 @@ export default function Imports() {
       setBatchId(res.data.batch_id)
       const sum = await api.importSummary(res.data.batch_id)
       setSummary(sum)
+      // field directive 2026-09-22: residents already in the registry under the
+      // exact same identity are omitted at staging — never re-scored, never
+      // re-imported, and the operator is told how many were skipped
+      if (sum && (sum.omitted_rows ?? 0) > 0) {
+        toast.push({
+          tone: 'info',
+          title: `${sum.omitted_rows} row(s) already in the registry were omitted`,
+          message: 'Identical residents (same name and birth date) are never processed twice — they keep their existing record.',
+        })
+      }
       setRows(await api.importRows(res.data.batch_id, { limit: 500 }))
       setStep(7)
       await loadBatches()
@@ -1023,6 +1066,47 @@ function importRowColumns(
         </select>
       ) },
   ]
+}
+
+/** Expands merged cell ranges so every covered cell carries the top-left value. */
+function fillMergedCells(
+  grid: unknown[][],
+  merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>,
+): string[][] {
+  const filled = grid.map((r) => (r ?? []).map((c) => String(c ?? '').trim()))
+  for (const m of merges ?? []) {
+    const val = filled[m.s.r]?.[m.s.c] ?? ''
+    if (!val) continue
+    for (let r = m.s.r; r <= Math.min(m.e.r, filled.length - 1); r += 1) {
+      for (let c = m.s.c; c <= Math.min(m.e.c, (filled[r] ?? []).length - 1); c += 1) {
+        if (!filled[r][c]) filled[r][c] = val
+      }
+    }
+  }
+  return filled
+}
+
+/**
+ * Composes readable column names from a multi-row header: a bare YES/NO cell
+ * inherits the merged group label above it ("4PS YES"); empty cells inherit
+ * the nearest label above; repeats get a _n suffix.
+ */
+function composeHeaders(grid: unknown[][], filled: string[][], headerIdx: number): string[] {
+  const raw = (grid[headerIdx] ?? []).map((c) => String(c ?? '').trim())
+  const seen = new Map<string, number>()
+  return raw.map((label0, i) => {
+    let label = label0
+    let above = ''
+    for (let r = headerIdx - 1; r >= 0; r -= 1) {
+      const v = filled[r]?.[i] ?? ''
+      if (v) { above = v; break }
+    }
+    if (/^(yes|no)$/i.test(label)) label = above ? `${above} ${label.toUpperCase()}` : label.toUpperCase()
+    if (!label) label = above || `__EMPTY_${i}`
+    const n = seen.get(label) ?? 0
+    seen.set(label, n + 1)
+    return n === 0 ? label : `${label}_${n}`
+  })
 }
 
 function detectMapping(headers: string[]): Record<string, string> {

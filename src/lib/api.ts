@@ -131,6 +131,7 @@ export interface ImportSummary {
   unique_rows: number
   duplicate_rows: number
   in_file_duplicates: number
+  omitted_rows?: number
   missing_birthdates: number
   invalid_dates: number
   missing_sex: number
