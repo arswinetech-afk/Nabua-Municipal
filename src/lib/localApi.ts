@@ -733,7 +733,9 @@ export class LocalApi implements RegistryApi {
           case 'updated': return (a.updated_at < b.updated_at ? 1 : -1) * dir
           case 'barangay': return (a.barangay_name ?? '').localeCompare(b.barangay_name ?? '') * dir
           case 'dob': return ((a.date_of_birth ?? '9999') < (b.date_of_birth ?? '9999') ? -1 : 1) * dir
-          default: return a.last_name.localeCompare(b.last_name) * dir || a.first_name.localeCompare(b.first_name) * dir
+          default: return (a.first_name ?? '').localeCompare(b.first_name ?? '') * dir
+            || (a.middle_name ?? '').localeCompare(b.middle_name ?? '') * dir
+            || (a.last_name ?? '').localeCompare(b.last_name ?? '') * dir
         }
       })
     }

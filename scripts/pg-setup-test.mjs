@@ -410,6 +410,14 @@ check('with a second active system admin the demotion is allowed', demote2?.ok =
 await db.query(`update users set role = 'SYSTEM_ADMIN' where id = $1`, [actorRow.id])
 await db.query(`update users set active = false where id = $1`, [second])
 
+// MIGRATION 0025: Member A-Z follows the displayed (given-name-first) order
+const named = (await db.query(
+  `select fn_search_persons(p_query => '', p_sort => 'name', p_dir => 'asc', p_limit => 200) as r`)).rows[0]?.r
+const firsts = (named?.rows ?? []).map((x) => x.first_name)
+const sorted = [...firsts].sort((a, b) => a.localeCompare(b))
+check('Member A-Z sorts by the displayed given name first',
+  firsts.length > 1 && JSON.stringify(firsts) === JSON.stringify(sorted), JSON.stringify(firsts))
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'
