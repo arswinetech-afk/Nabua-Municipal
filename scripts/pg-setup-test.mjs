@@ -418,6 +418,37 @@ const sorted = [...firsts].sort((a, b) => a.localeCompare(b))
 check('Member A-Z sorts by the displayed given name first',
   firsts.length > 1 && JSON.stringify(firsts) === JSON.stringify(sorted), JSON.stringify(firsts))
 
+// MIGRATION 0026: rows already in the registry are omitted at staging
+const omitRes = (await db.query(
+  `select fn_import_create_batch($1, $2, $3) as r`,
+  ['omit-test.xlsx', '{}', JSON.stringify([{ first_name: 'Led', last_name: 'Familia', barangay_id: brgy }])])).rows[0]?.r
+const omitRows = (await db.query(
+  `select count(*)::int as n from import_rows where batch_id = $1`, [omitRes?.batch_id])).rows[0]?.n
+check('a row whose identity already lives in the registry is omitted at staging',
+  omitRes?.ok === true && Number(omitRes?.omitted) === 1 && omitRows === 0,
+  JSON.stringify({ omitRes, omitRows }))
+
+// MIGRATION 0027: tag → beneficiary bridge (preview, apply once, stay pending)
+const bridgeProg = (await db.query(`select fn_subsidy_upsert_program($1::jsonb) as r`,
+  [JSON.stringify({ name: 'Bigasan 2026' })])).rows[0]?.r
+const dryBridge = (await db.query(`select fn_subsidy_bridge_tag($1::jsonb) as r`,
+  [JSON.stringify({ program_id: bridgeProg?.program?.id, tag: 'akap', dry_run: true })])).rows[0]?.r
+const applyBridge = (await db.query(`select fn_subsidy_bridge_tag($1::jsonb) as r`,
+  [JSON.stringify({ program_id: bridgeProg?.program?.id, tag: 'AKAP' })])).rows[0]?.r
+const reBridge = (await db.query(`select fn_subsidy_bridge_tag($1::jsonb) as r`,
+  [JSON.stringify({ program_id: bridgeProg?.program?.id, tag: 'AKAP' })])).rows[0]?.r
+const pendBridge = (await db.query(
+  `select count(*)::int as n from subsidy_beneficiaries b
+    where b.program_id = $1 and not b.verified`, [bridgeProg?.program?.id])).rows[0]?.n
+const tagCounts = (await db.query(`select fn_subsidy_tag_counts() as r`)).rows[0]?.r
+check('the tag bridge previews, adds every AKAP member once, and keeps rows pending',
+  dryBridge?.ok === true && Number(dryBridge?.would_add) >= 1
+  && applyBridge?.ok === true && Number(applyBridge?.added) === Number(dryBridge?.would_add)
+  && reBridge?.ok === true && Number(reBridge?.added) === 0 && Number(reBridge?.skipped) >= 1
+  && pendBridge === Number(applyBridge?.added)
+  && (tagCounts?.rows ?? []).some((t) => t.tag === 'AKAP'),
+  JSON.stringify({ dryBridge, applyBridge, reBridge, pendBridge }))
+
 console.log(
   failures === 0
     ? '\nSETUP FILE TEST PASSED\n'

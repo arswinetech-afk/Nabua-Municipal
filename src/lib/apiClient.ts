@@ -22,6 +22,7 @@ import type {
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, ManagedUser, OutboxItem,
   Person, PersonIndexRow, SystemSettings, SubsidyProgram, SubsidyBeneficiary,
+  SubsidyBridgeResult, SubsidyTagCount,
 } from './types'
 import type { DuplicateMatch, PersonComparable } from './duplicateEngine'
 
@@ -30,6 +31,7 @@ type Operation =
   | 'openDuplicateCase' | 'resolveDuplicateCase' | 'mergePersons'
   | 'upsertUser' | 'upsertBarangay' | 'saveSettings' | 'logEvent'
   | 'upsertSubsidyProgram' | 'addSubsidyBeneficiary' | 'removeSubsidyBeneficiary'
+  | 'bridgeSubsidyTag'
 
 export type SyncEvent = {
   type: 'queued' | 'pushed' | 'conflict' | 'failed' | 'online' | 'offline' | 'mirrored'
@@ -528,6 +530,29 @@ export class ApiClient implements RegistryApi {
       'removeSubsidyBeneficiary', { id, reason }, 'Removed from subsidy list',
       () => Promise.resolve(this.local.removeSubsidyBeneficiary(id, reason)),
       this.remote ? () => this.remote!.removeSubsidyBeneficiary(id, reason) : null,
+    )
+  }
+
+  listSubsidyTagCounts(): Promise<SubsidyTagCount[]> {
+    return this.read(
+      this.remote ? () => this.remote!.listSubsidyTagCounts() : null,
+      () => this.local.listSubsidyTagCounts())
+  }
+
+  bridgeSubsidyTag(input: {
+    program_id: string; tag: string; classification_code?: string | null
+    paper_ref?: string | null; notes?: string | null; dry_run?: boolean
+  }): Promise<ApiResult<SubsidyBridgeResult>> {
+    // A dry run changes nothing — it is a read and must never sit in the outbox.
+    if (input.dry_run) {
+      return this.read(
+        this.remote ? () => this.remote!.bridgeSubsidyTag(input) : null,
+        () => this.local.bridgeSubsidyTag(input))
+    }
+    return this.write(
+      'bridgeSubsidyTag', { ...input }, `Subsidy tag bridge: ${input.tag}`,
+      () => Promise.resolve(this.local.bridgeSubsidyTag(input)),
+      this.remote ? () => this.remote!.bridgeSubsidyTag(input) : null,
     )
   }
 
@@ -1067,6 +1092,11 @@ export class ApiClient implements RegistryApi {
       }
       case 'removeSubsidyBeneficiary': {
         const res = await remote.removeSubsidyBeneficiary((p.input as { id: string }).id, (p.input as { reason?: string }).reason)
+        if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
+        return 'ok'
+      }
+      case 'bridgeSubsidyTag': {
+        const res = await remote.bridgeSubsidyTag(p.input as never)
         if (!res.ok) throw new RemoteError(res.error ?? 'The server rejected this change.', (res as { code?: string }).code)
         return 'ok'
       }

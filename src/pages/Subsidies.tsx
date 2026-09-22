@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useApp } from '../state/AppProvider'
 import { PageHeader } from '../components/Layout'
 import { DataTable, type Column } from '../components/DataTable'
-import type { SubsidyBeneficiary, SubsidyProgram, Person, Barangay } from '../lib/types'
+import type { SubsidyBeneficiary, SubsidyBridgeResult, SubsidyProgram, SubsidyTagCount, Person, Barangay } from '../lib/types'
 import { CLASSIFICATION_CODES } from '../lib/types'
 import {
-  Badge, Button, Card, ConfirmDialog, Field, IconEdit, IconGift, IconPlus, IconSearch, Modal, useToast,
+  Badge, Button, Card, ConfirmDialog, Field, IconEdit, IconGift, IconPlus, IconSearch, IconUsers, Modal, useToast,
 } from '../components/ui'
 
 /**
@@ -38,6 +38,11 @@ export default function Subsidies() {
   const [addForm, setAddForm] = useState({ verified: true, paper_ref: '', notes: '', classification_code: '' })
   const [removing, setRemoving] = useState<SubsidyBeneficiary | null>(null)
   const [removeReason, setRemoveReason] = useState('')
+
+  const [bridging, setBridging] = useState(false)
+  const [tagCounts, setTagCounts] = useState<SubsidyTagCount[]>([])
+  const [bridgeForm, setBridgeForm] = useState({ tag: '', classification_code: '', paper_ref: '', notes: '' })
+  const [bridgePreview, setBridgePreview] = useState<SubsidyBridgeResult | null>(null)
 
   const canManage = user && ['ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
   const canEncode = user && ['ENCODER', 'ADMINISTRATOR', 'SYSTEM_ADMIN'].includes(user.role)
@@ -135,6 +140,56 @@ export default function Subsidies() {
     }
   }
 
+  const openBridge = () => {
+    setBridging(true)
+    setBridgeForm({ tag: '', classification_code: '', paper_ref: '', notes: '' })
+    setBridgePreview(null)
+    void api.listSubsidyTagCounts().then((rows) => {
+      setTagCounts(rows)
+      if (rows.length === 1) setBridgeForm((f) => ({ ...f, tag: rows[0].tag }))
+    })
+  }
+
+  const previewBridge = async () => {
+    if (!open || !bridgeForm.tag) return
+    setBusy(true)
+    try {
+      const res = await api.bridgeSubsidyTag({
+        program_id: open.id, tag: bridgeForm.tag,
+        classification_code: bridgeForm.classification_code || null,
+        paper_ref: bridgeForm.paper_ref || null, notes: bridgeForm.notes || null,
+        dry_run: true,
+      })
+      if (!res.ok) { toast.push({ tone: 'error', title: 'Preview failed', message: res.error }); return }
+      setBridgePreview(res.data)
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Preview failed', message: err instanceof Error ? err.message : String(err) })
+    } finally { setBusy(false) }
+  }
+
+  const applyBridge = async () => {
+    if (!open || !bridgeForm.tag || !bridgePreview) return
+    setBusy(true)
+    try {
+      const res = await api.bridgeSubsidyTag({
+        program_id: open.id, tag: bridgeForm.tag,
+        classification_code: bridgeForm.classification_code || null,
+        paper_ref: bridgeForm.paper_ref || null, notes: bridgeForm.notes || null,
+      })
+      if (!res.ok) { toast.push({ tone: 'error', title: 'Not added', message: res.error }); return }
+      const d = res.data
+      setBridging(false)
+      void loadBeneficiaries(); void loadPrograms()
+      toast.push({
+        tone: 'success',
+        title: `${d.added ?? 0} member(s) added to ${open.name}`,
+        message: `${d.skipped ?? 0} were already on the list. Bridged rows stay Pending until cross-checked against the paper list.`,
+      })
+    } catch (err) {
+      toast.push({ tone: 'error', title: 'Could not add', message: err instanceof Error ? err.message : String(err) })
+    } finally { setBusy(false) }
+  }
+
   const columns: Array<Column<SubsidyBeneficiary>> = [
     { key: 'member', header: 'Member', value: (b) => b.person_name ?? '' },
     { key: 'ref', header: 'Reference', value: (b) => b.reference_no ?? '' },
@@ -198,11 +253,16 @@ export default function Subsidies() {
                 <Button size="sm" variant="ghost" onClick={() => setOpen(null)}>← All programmes</Button>
                 <span className="ml-2 text-sm font-bold text-ink">{open.name}</span>
               </div>
-              <select className="input max-w-[12rem]" value={barangayFilter}
-                onChange={(e) => setBarangayFilter(e.target.value)} aria-label="Filter by barangay">
-                <option value="">All barangays</option>
-                {barangays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+              <div className="flex items-center gap-2">
+                {canEncode && (
+                  <Button size="sm" variant="secondary" onClick={openBridge}><IconUsers /> Add from tag</Button>
+                )}
+                <select className="input max-w-[12rem]" value={barangayFilter}
+                  onChange={(e) => setBarangayFilter(e.target.value)} aria-label="Filter by barangay">
+                  <option value="">All barangays</option>
+                  {barangays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
             </div>
             {canEncode && (
               <div className="mt-3">
@@ -315,6 +375,74 @@ export default function Subsidies() {
             </label>
           </div>
         )}
+      </Modal>
+
+      <Modal open={bridging} title={`Add members by registry tag — ${open?.name ?? ''}`}
+        onClose={() => setBridging(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setBridging(false)}>Cancel</Button>
+            <Button variant="secondary" loading={busy} disabled={!bridgeForm.tag}
+              onClick={() => void previewBridge()}>Preview matches</Button>
+            <Button variant="primary" loading={busy}
+              disabled={!bridgePreview || (bridgePreview.would_add ?? 0) === 0}
+              onClick={() => void applyBridge()}>
+              Add {bridgePreview ? bridgePreview.would_add ?? 0 : ''} member(s)
+            </Button>
+          </>
+        }>
+        <div className="grid grid-cols-1 gap-3">
+          <p className="text-xs text-ink-soft">
+            Adds every active member carrying the chosen tag — for example the ✔ columns from a
+            rice-subsidy import (4PS, WALANG GUTOM, FARMER, SENIOR CITIZEN…). Nothing is written
+            until you preview and confirm, and bridged rows stay <strong>Pending</strong>:
+            eligibility is still cross-checked per row against the barangay paper list.
+          </p>
+          <Field label="Registry tag">
+            <select className="input" value={bridgeForm.tag}
+              onChange={(e) => { setBridgeForm({ ...bridgeForm, tag: e.target.value }); setBridgePreview(null) }}>
+              <option value="">Choose a tag…</option>
+              {tagCounts.map((t) => (
+                <option key={t.tag} value={t.tag}>{t.tag} — {t.members} member{t.members === 1 ? '' : 's'}</option>
+              ))}
+            </select>
+          </Field>
+          {tagCounts.length === 0 && (
+            <p className="text-xs text-ink-soft">
+              No registry tags yet. Tags arrive with imports (tick columns) or can be set on a member profile.
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Classification code">
+              <select className="input" value={bridgeForm.classification_code}
+                onChange={(e) => setBridgeForm({ ...bridgeForm, classification_code: e.target.value })}>
+                {CLASSIFICATION_CODES.map((c) => <option key={c.code} value={c.code}>{c.code ? `${c.code} — ${c.label}` : c.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Paper list reference">
+              <input className="input" value={bridgeForm.paper_ref}
+                onChange={(e) => setBridgeForm({ ...bridgeForm, paper_ref: e.target.value })}
+                placeholder="RICE SUBSIDY 2 FINAL LIST.xlsx" />
+            </Field>
+          </div>
+          <Field label="Notes">
+            <input className="input" value={bridgeForm.notes}
+              onChange={(e) => setBridgeForm({ ...bridgeForm, notes: e.target.value })}
+              placeholder={`Bridged from registry tag "${bridgeForm.tag || '…'}"`} />
+          </Field>
+          {bridgePreview && (
+            <div className="rounded-md border border-line bg-slate-50 p-3 text-sm text-ink">
+              <p>
+                <strong>{bridgePreview.matched}</strong> member(s) carry this tag ·{' '}
+                <strong>{bridgePreview.already_listed ?? 0}</strong> already on this list ·{' '}
+                <strong>{bridgePreview.would_add ?? 0}</strong> would be added.
+              </p>
+              {(bridgePreview.sample ?? []).length > 0 && (
+                <p className="mt-1 text-xs text-ink-soft">First names: {(bridgePreview.sample ?? []).join(', ')}…</p>
+              )}
+            </div>
+          )}
+        </div>
       </Modal>
 
       <ConfirmDialog

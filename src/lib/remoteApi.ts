@@ -11,7 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, ManagedUser,
   OutboxItem, Person, PersonIndexRow, SystemSettings,
-  SubsidyProgram, SubsidyBeneficiary,
+  SubsidyProgram, SubsidyBeneficiary, SubsidyBridgeResult, SubsidyTagCount,
 } from './types'
 import type {
   ApiResult, CreatePersonResult, DuplicateComparison, ImportRow, ImportSummary, MergeOptions,
@@ -33,6 +33,7 @@ type RpcName =
   | 'fn_import_set_decision' | 'fn_import_set_all_decisions' | 'fn_import_commit' | 'fn_link_auth_user'
   | 'fn_subsidy_programs' | 'fn_subsidy_upsert_program' | 'fn_subsidy_beneficiaries'
   | 'fn_subsidy_add_beneficiary' | 'fn_subsidy_remove_beneficiary'
+  | 'fn_subsidy_tag_counts' | 'fn_subsidy_bridge_tag'
   | 'fn_import_finalize_batch'
   | 'fn_schema_info'
 
@@ -412,6 +413,27 @@ export class RemoteApi implements RegistryApi {
       const res = await this.rpc<{ ok: boolean; code?: string; error?: string }>(
         'fn_subsidy_remove_beneficiary', { p_id: id, p_reason: reason })
       return res?.ok ? { ok: true, data: { id } } : { ok: false, code: res?.code, error: res?.error ?? 'Refused.' }
+    } catch (err) {
+      const e = parseDbError(err)
+      return { ok: false, code: e.code, error: e.message }
+    }
+  }
+
+  async listSubsidyTagCounts(): Promise<SubsidyTagCount[]> {
+    const res = await this.rpc<{ rows: SubsidyTagCount[] }>('fn_subsidy_tag_counts', {})
+    return res?.rows ?? []
+  }
+
+  async bridgeSubsidyTag(input: {
+    program_id: string; tag: string; classification_code?: string | null
+    paper_ref?: string | null; notes?: string | null; dry_run?: boolean
+  }): Promise<ApiResult<SubsidyBridgeResult>> {
+    try {
+      const res = await this.rpc<SubsidyBridgeResult & { ok: boolean; code?: string; error?: string }>(
+        'fn_subsidy_bridge_tag', { p: input })
+      return res?.ok
+        ? { ok: true, data: res }
+        : { ok: false, code: res?.code, error: res?.error ?? 'The server refused this tag bridge.' }
     } catch (err) {
       const e = parseDbError(err)
       return { ok: false, code: e.code, error: e.message }

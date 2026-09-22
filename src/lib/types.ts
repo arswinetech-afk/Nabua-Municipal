@@ -67,6 +67,20 @@ export type SubsidyBeneficiary = {
   added_by_name?: string | null
 }
 
+/** Result of the tag → beneficiary bridge (migration 0027). */
+export type SubsidyBridgeResult = {
+  matched: number
+  added?: number
+  skipped?: number
+  already_listed?: number
+  would_add?: number
+  sample?: string[]
+  dry_run?: boolean
+}
+
+/** One registry tag and how many active members carry it. */
+export type SubsidyTagCount = { tag: string; members: number }
+
 /**
  * Neutral sector classifications for paper-list cross-checks. Deliberately
  * contains NO political or voting category: see docs/GO_LIVE.md §10.

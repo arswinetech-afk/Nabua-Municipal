@@ -12,7 +12,7 @@
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, Household, ManagedUser,
   OutboxItem, Person, PersonIndexRow, SystemSettings,
-  SubsidyProgram, SubsidyBeneficiary,
+  SubsidyProgram, SubsidyBeneficiary, SubsidyBridgeResult, SubsidyTagCount,
 } from './types'
 import type { DuplicateMatch, PersonComparable } from './duplicateEngine'
 
@@ -190,6 +190,11 @@ export interface RegistryApi {
     classification_code?: string | null; verified?: boolean; paper_ref?: string | null; notes?: string | null
   }): Promise<ApiResult<SubsidyBeneficiary>>
   removeSubsidyBeneficiary(id: string, reason?: string | null): Promise<ApiResult<{ id: string }>>
+  listSubsidyTagCounts(): Promise<SubsidyTagCount[]>
+  bridgeSubsidyTag(input: {
+    program_id: string; tag: string; classification_code?: string | null
+    paper_ref?: string | null; notes?: string | null; dry_run?: boolean
+  }): Promise<ApiResult<SubsidyBridgeResult>>
   searchPersons(query: SearchQuery): Promise<SearchResult>
   personIndex(): Promise<PersonIndexRow[]>
   getPerson(id: string): Promise<PersonDetail | null>

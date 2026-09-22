@@ -19,7 +19,7 @@ import seed from '../data/seed.json'
 import type {
   AuditLogRow, Barangay, DataQualityRow, DuplicateCase, DashboardStats, Household, ManagedUser,
   OutboxItem, Person, PersonIndexRow, PersonStatus, SystemSettings,
-  SubsidyProgram, SubsidyBeneficiary,
+  SubsidyProgram, SubsidyBeneficiary, SubsidyBridgeResult, SubsidyTagCount,
 } from './types'
 import type {
   ApiResult, CreatePersonResult, DuplicateComparison, ImportRow, ImportSummary, MergeOptions,
@@ -1897,6 +1897,56 @@ export class LocalApi implements RegistryApi {
     this.persist()
     this.audit('DELETED', 'SUBSIDY_BENEFICIARIES', row.id, row.person_name ?? row.person_id, row, reason ?? null)
     return { ok: true, data: { id } }
+  }
+
+  async listSubsidyTagCounts(): Promise<SubsidyTagCount[]> {
+    const counts = new Map<string, number>()
+    for (const p of this.db.persons) {
+      if (p.merged_into || p.status === 'ARCHIVED') continue
+      for (const t of p.tags ?? []) {
+        const k = (t ?? '').trim().toUpperCase()
+        if (k) counts.set(k, (counts.get(k) ?? 0) + 1)
+      }
+    }
+    return [...counts.entries()].map(([tag, members]) => ({ tag, members }))
+      .sort((a, b) => b.members - a.members || a.tag.localeCompare(b.tag))
+  }
+
+  async bridgeSubsidyTag(input: {
+    program_id: string; tag: string; classification_code?: string | null
+    paper_ref?: string | null; notes?: string | null; dry_run?: boolean
+  }): Promise<ApiResult<SubsidyBridgeResult>> {
+    const denial = this.require(['ENCODER', 'ADMINISTRATOR', 'SYSTEM_ADMIN'])
+    if (denial) return denial
+    const program = this.db.programs.find((x) => x.id === input.program_id)
+    if (!program) return { ok: false, code: 'NOT_FOUND', error: 'Programme not found on this device.' }
+    const tag = (input.tag ?? '').trim().toUpperCase()
+    if (!tag) return { ok: false, code: 'BAD_INPUT', error: 'Choose which registry tag to bridge.' }
+    const listed = (pid: string) => this.db.beneficiaries.some((b) => b.program_id === program.id && b.person_id === pid)
+    const match = this.db.persons.filter((p) =>
+      !p.merged_into && p.status !== 'ARCHIVED'
+      && (p.tags ?? []).some((t) => (t ?? '').trim().toUpperCase() === tag))
+    const pending = match.filter((p) => !listed(p.id))
+    const sample = pending.map((p) => fullName(p)).sort((a, b) => a.localeCompare(b, 'en')).slice(0, 5)
+    if (input.dry_run) {
+      return { ok: true, data: { matched: match.length, already_listed: match.length - pending.length,
+        would_add: pending.length, sample, dry_run: true } }
+    }
+    const notes = input.notes || `Bridged from registry tag "${tag}"`
+    let added = 0
+    for (const p of pending) {
+      this.db.beneficiaries.push({
+        id: uid('sb'), program_id: program.id, person_id: p.id,
+        barangay_id: p.barangay_id ?? null,
+        classification_code: input.classification_code ?? p.classification_code ?? null,
+        verified: false, paper_ref: input.paper_ref ?? null, notes, created_at: nowIso(),
+      })
+      added++
+    }
+    this.persist()
+    this.audit('CREATED', 'SUBSIDY_BENEFICIARIES', program.id,
+      `${program.name} — tag bridge "${tag}"`, { tag, matched: match.length, added }, notes)
+    return { ok: true, data: { matched: match.length, added, skipped: match.length - added, sample } }
   }
 
   subscribe(listener: () => void) {
