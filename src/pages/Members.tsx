@@ -44,7 +44,7 @@ export default function Members() {
   // "Encoded since midnight" — set by the New-today cards on the directory
   // and dashboard so the list matches the number on the card.
   const [sinceToday, setSinceToday] = useState(params.get('since') === 'today')
-  const [sort, setSort] = useState<'name' | 'updated' | 'dob'>('name')
+  const [sort, setSort] = useState<'name' | 'updated' | 'dob' | 'barangay'>('name')
   const [dir, setDir] = useState<'asc' | 'desc'>('asc')
   const [limit, setLimit] = useState(25)
   const [offset, setOffset] = useState(0)
@@ -163,8 +163,10 @@ export default function Members() {
           </select>
           <select className="input max-w-[10rem]" value={`${sort}:${dir}`}
             onChange={(e) => { const [s, d] = e.target.value.split(':'); setSort(s as typeof sort); setDir(d as 'asc' | 'desc') }}>
-            <option value="name:asc">Name A → Z</option>
-            <option value="name:desc">Name Z → A</option>
+            <option value="name:asc">Sort Member A–Z</option>
+            <option value="name:desc">Sort Member Z–A</option>
+            <option value="barangay:asc">Sort Barangay A–Z</option>
+            <option value="barangay:desc">Sort Barangay Z–A</option>
             <option value="updated:desc">Recently updated</option>
             <option value="dob:asc">Birthdate ↑</option>
             <option value="dob:desc">Birthdate ↓</option>
