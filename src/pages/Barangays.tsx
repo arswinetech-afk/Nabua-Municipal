@@ -176,7 +176,7 @@ export default function Barangays() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {/* One-tap drill-downs: the cards are the shortcuts the office asked
             for — no menu hunting between directory, registry and reviews. */}
-        <KpiCard label="Barangays" value={rows.filter((b) => b.active).length} sub={`${rows.length} total on file`} icon={<IconMap />}
+        <KpiCard label="Barangays" value={rows.filter((b) => b.active).length} sub="active" icon={<IconMap />}
           onClick={() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
         <KpiCard label="Registered members" value={totals.members.toLocaleString()} sub="Across all barangays" icon={<IconUsers />}
           onClick={() => navigate('/members')} />
