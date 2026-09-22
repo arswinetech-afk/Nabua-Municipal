@@ -201,16 +201,22 @@ export type PdfExtract = {
   meta?: string[]
   /** Uncompressed streams (tests only; production extracts compress). */
   compress?: boolean
+  /** Landscape A4 — the default for wide registry extracts (field directive
+   *  2026-09-22: portrait cropped the personal information). */
+  landscape?: boolean
 }
 
 const NAVY: [number, number, number] = [31, 56, 100]
 const GRAY: [number, number, number] = [107, 114, 128]
 const INK: [number, number, number] = [17, 24, 39]
 
-export async function buildPdfBytes(ex: PdfExtract): Promise<Uint8Array> {
+export async function buildPdfDoc(ex: PdfExtract): Promise<import('jspdf').jsPDF> {
   const { jsPDF } = await import('jspdf')
   const autoTable = (await import('jspdf-autotable')).default
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: ex.compress ?? true })
+  const doc = new jsPDF({
+    unit: 'mm', format: 'a4', orientation: ex.landscape ? 'landscape' : 'portrait',
+    compress: ex.compress ?? true,
+  })
   const W = doc.internal.pageSize.getWidth()
   const H = doc.internal.pageSize.getHeight()
   const M = 14
@@ -243,10 +249,10 @@ export async function buildPdfBytes(ex: PdfExtract): Promise<Uint8Array> {
     startY,
     margin: { left: M, right: M, top: 16, bottom: 18 },
     styles: {
-      font: 'helvetica', fontSize: 8.6, textColor: INK, cellPadding: 2.2,
+      font: 'helvetica', fontSize: 9, textColor: INK, cellPadding: 1.8,
       lineWidth: 0.15, lineColor: [209, 213, 219], overflow: 'linebreak',
     },
-    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.8 },
+    headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9.2 },
     alternateRowStyles: { fillColor: [245, 247, 250] },
     didDrawPage: () => { /* footers are stamped after pagination is final */ },
   })
@@ -272,10 +278,45 @@ export async function buildPdfBytes(ex: PdfExtract): Promise<Uint8Array> {
     doc.text(`Page ${i} of ${pages}`, W - M, H - 8, { align: 'right' })
   }
 
+  return doc
+}
+
+export async function buildPdfBytes(ex: PdfExtract): Promise<Uint8Array> {
+  const doc = await buildPdfDoc(ex)
   return new Uint8Array(doc.output('arraybuffer'))
 }
 
 export async function downloadPdf(ex: PdfExtract) {
   const bytes = await buildPdfBytes(ex)
   downloadBlob(bytes.buffer as ArrayBuffer, ex.filename, 'application/pdf')
+}
+
+/**
+ * Field directive 2026-09-22: a Print button must send the document straight
+ * to the office printer. The PDF is built with an auto-print flag and handed
+ * to a hidden iframe, so the browser's print service opens with the document
+ * ready — the office printer is preselected, no extra steps for staff.
+ */
+export async function printPdf(ex: PdfExtract) {
+  const doc = await buildPdfDoc(ex)
+  doc.autoPrint()
+  const url = URL.createObjectURL(new Blob([doc.output('blob')], { type: 'application/pdf' }))
+  const frame = document.createElement('iframe')
+  frame.style.position = 'fixed'
+  frame.style.right = '0'
+  frame.style.bottom = '0'
+  frame.style.width = '1px'
+  frame.style.height = '1px'
+  frame.style.border = '0'
+  frame.setAttribute('aria-hidden', 'true')
+  frame.onload = () => {
+    try {
+      frame.contentWindow?.focus()
+      frame.contentWindow?.print()
+    } finally {
+      window.setTimeout(() => { URL.revokeObjectURL(url); frame.remove() }, 120_000)
+    }
+  }
+  frame.src = url
+  document.body.appendChild(frame)
 }

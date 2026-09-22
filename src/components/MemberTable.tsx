@@ -82,6 +82,7 @@ export function personColumns({
 export function MemberTable({
   rows, loading, total, limit, offset, onPage, onRowClick, emptyTitle, emptyMessage, emptyAction,
   search, onSearch, searchPlaceholder, filters, exportName, exportTitle, maskContactNumbers, mobilePrimary,
+  fetchExportRows,
 }: {
   rows: Person[]
   loading?: boolean
@@ -101,10 +102,12 @@ export function MemberTable({
   exportTitle?: string
   maskContactNumbers?: boolean
   mobilePrimary?: string[]
+  fetchExportRows?: () => Promise<Person[]>
 }) {
   return (
     <DataTable
       rows={rows}
+      fetchExportRows={fetchExportRows}
       columns={personColumns({ maskContactNumbers, onOpen: onRowClick })}
       rowKey={(p) => p.id}
       loading={loading}

@@ -87,6 +87,26 @@ export default function Members() {
     }
   }, [api, debounced, barangayId, status, attention, duplicatesOnly, sinceToday, sort, dir, limit, offset])
 
+  // exports must carry EVERY filtered member, not just the visible page
+  const fetchExportRows = useCallback(async () => {
+    const out: Person[] = []
+    const step = 200
+    for (let off = 0; off < 10_000; off += step) {
+      const res = await api.searchPersons({
+        query: debounced || undefined,
+        barangay_id: barangayId || null,
+        status: status === 'ALL' ? null : status,
+        attention: attention || null,
+        duplicates_only: duplicatesOnly,
+        created_since: sinceToday ? localToday() : null,
+        sort, dir, limit: step, offset: off,
+      })
+      out.push(...res.rows)
+      if (out.length >= res.total || res.rows.length === 0) break
+    }
+    return out
+  }, [api, debounced, barangayId, status, attention, duplicatesOnly, sinceToday, sort, dir])
+
   useEffect(() => {
     void load()
   }, [load, online])
@@ -217,6 +237,7 @@ export default function Members() {
           onRowClick={(p) => navigate(`/members/${p.id}`)}
           exportName="member-registry"
           exportTitle="Municipal Member Registry"
+          fetchExportRows={fetchExportRows}
           maskContactNumbers={settings.mask_contact_in_lists}
           emptyTitle="No members match these filters"
           emptyMessage="Try removing a filter, searching a different spelling, or add the member as a new record."
